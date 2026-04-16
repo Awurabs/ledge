@@ -3,6 +3,7 @@ import {
   LayoutDashboard,
   CreditCard,
   ArrowLeftRight,
+  Coins,
   CheckCircle,
   TrendingUp,
   Scale,
@@ -52,6 +53,7 @@ const navGroups = [
       { label: "Invoicing", path: "/invoicing", icon: FileText },
       { label: "Bills", path: "/bills", icon: Receipt, badge: 7 },
       { label: "Reimbursements", path: "/reimbursements", icon: RefreshCcw },
+      { label: "Revenue", path: "/revenue", icon: Coins },
     ],
   },
   {

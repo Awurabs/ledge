@@ -13,6 +13,7 @@ import ChartOfAccounts from "./pages/ChartOfAccounts";
 import Invoicing from "./pages/Invoicing";
 import Bills from "./pages/Bills";
 import Reimbursements from "./pages/Reimbursements";
+import Revenue from "./pages/Revenue";
 import Analytics from "./pages/Analytics";
 import Copilot from "./pages/Copilot";
 import PeopleTeams from "./pages/PeopleTeams";
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/invoicing" element={<Invoicing />} />
           <Route path="/bills" element={<Bills />} />
           <Route path="/reimbursements" element={<Reimbursements />} />
+          <Route path="/revenue" element={<Revenue />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/copilot" element={<Copilot />} />
           <Route path="/people" element={<PeopleTeams />} />
