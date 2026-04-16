@@ -3,8 +3,9 @@ import { Bell, Search, HelpCircle } from "lucide-react";
 
 const pageTitles = {
   "/": "Dashboard",
-  "/cards": "Cards",
   "/transactions": "Transactions",
+  "/cards": "Cards",
+  "/expenses": "Expenses",
   "/approvals": "Approvals",
   "/books": "P&L Statement",
   "/balance-sheet": "Balance Sheet",

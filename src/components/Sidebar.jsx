@@ -1,11 +1,11 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import {
+  LayoutDashboard,
   CreditCard,
   ArrowLeftRight,
   CheckCircle,
   TrendingUp,
   Scale,
-  SlidersHorizontal,
   CalendarCheck,
   BookOpen,
   FileText,
@@ -17,15 +17,23 @@ import {
   Plug,
   Settings,
   LogOut,
-  ChevronRight,
+  Wallet,
+  ShoppingCart,
 } from "lucide-react";
 
 const navGroups = [
   {
+    label: "Main",
+    items: [
+      { label: "Dashboard", path: "/", icon: LayoutDashboard },
+    ],
+  },
+  {
     label: "Spend",
     items: [
+      { label: "Transactions", path: "/transactions", icon: Wallet },
       { label: "Cards", path: "/cards", icon: CreditCard },
-      { label: "Transactions", path: "/transactions", icon: ArrowLeftRight },
+      { label: "Expenses", path: "/expenses", icon: ShoppingCart },
       { label: "Approvals", path: "/approvals", icon: CheckCircle, badge: 4 },
     ],
   },
@@ -34,7 +42,6 @@ const navGroups = [
     items: [
       { label: "P&L", path: "/books", icon: TrendingUp },
       { label: "Balance Sheet", path: "/balance-sheet", icon: Scale },
-      { label: "Adjust", path: "/adjust", icon: SlidersHorizontal },
       { label: "Month-End Close", path: "/month-end-close", icon: CalendarCheck },
       { label: "Chart of Accounts", path: "/chart-of-accounts", icon: BookOpen },
     ],
@@ -68,7 +75,8 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isActive = (path) => location.pathname === path;
+  const isActive = (path) =>
+    path === "/" ? location.pathname === "/" : location.pathname === path;
 
   return (
     <div className="w-60 min-w-[240px] h-screen bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
@@ -127,10 +135,7 @@ export default function Sidebar() {
             <p className="text-sm font-semibold text-gray-900 truncate">Abena Owusu</p>
             <p className="text-xs text-gray-500 truncate">Finance Lead</p>
           </div>
-          <LogOut
-            size={15}
-            className="text-gray-400 group-hover:text-gray-600 shrink-0"
-          />
+          <LogOut size={15} className="text-gray-400 group-hover:text-gray-600 shrink-0" />
         </div>
       </div>
     </div>

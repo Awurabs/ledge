@@ -3,6 +3,7 @@ import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
 import Cards from "./pages/Cards";
 import Transactions from "./pages/Transactions";
+import Expenses from "./pages/Expenses";
 import Approvals from "./pages/Approvals";
 import Books from "./pages/Books";
 import BalanceSheet from "./pages/BalanceSheet";
@@ -24,8 +25,9 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/cards" element={<Cards />} />
           <Route path="/transactions" element={<Transactions />} />
+          <Route path="/cards" element={<Cards />} />
+          <Route path="/expenses" element={<Expenses />} />
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/books" element={<Books />} />
           <Route path="/balance-sheet" element={<BalanceSheet />} />
