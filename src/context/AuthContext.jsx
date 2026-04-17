@@ -9,48 +9,72 @@ export function AuthProvider({ children }) {
   const [membership, setMembership] = useState(null);
   const [loading, setLoading]     = useState(true);
 
-  // Fetch profile + org membership for a given userId
+  // Fetch profile + org membership for a given userId.
+  // Race against a 6-second timeout so a paused/unreachable Supabase
+  // project never leaves the app stuck on the loading spinner.
   const loadUserData = useCallback(async (userId) => {
     try {
-      const [{ data: profileData }, { data: memberData }] = await Promise.all([
-        supabase
-          .from("profiles")
-          .select("id, full_name, avatar_url, phone, job_title")
-          .eq("id", userId)
-          .single(),
-        supabase
-          .from("organization_members")
-          .select(
-            "id, role, organization_id, organizations(id, name, slug, base_currency, logo_url)"
-          )
-          .eq("user_id", userId)
-          .is("deactivated_at", null)
-          .limit(1)
-          .maybeSingle(),
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("loadUserData_timeout")), 6000)
+      );
+
+      const [{ data: profileData }, { data: memberData }] = await Promise.race([
+        Promise.all([
+          supabase
+            .from("profiles")
+            .select("id, full_name, avatar_url, phone, job_title")
+            .eq("id", userId)
+            .single(),
+          supabase
+            .from("organization_members")
+            .select(
+              "id, role, organization_id, organizations(id, name, slug, base_currency, logo_url)"
+            )
+            .eq("user_id", userId)
+            .is("deactivated_at", null)
+            .limit(1)
+            .maybeSingle(),
+        ]),
+        timeoutPromise,
       ]);
+
       setProfile(profileData ?? null);
       setMembership(memberData ?? null);
     } catch (err) {
-      console.error("loadUserData error:", err);
+      // Network hang, timeout, or Supabase error — proceed without profile data.
+      // The user is authenticated; they just won't have org context until reload.
+      if (err.message !== "loadUserData_timeout") {
+        console.error("loadUserData error:", err);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    // Bootstrap: check for existing session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
-      setSession(s);
-      if (s?.user) {
-        loadUserData(s.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
+    let mounted = true;
 
-    // Listen for auth changes
+    // Bootstrap: check for existing session.
+    // Add .catch() so an auth network failure doesn't leave loading stuck.
+    supabase.auth.getSession()
+      .then(({ data: { session: s } }) => {
+        if (!mounted) return;
+        setSession(s);
+        if (s?.user) {
+          loadUserData(s.user.id);
+        } else {
+          setLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.error("getSession error:", err);
+        if (mounted) setLoading(false);
+      });
+
+    // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, s) => {
+        if (!mounted) return;
         setSession(s);
         if (s?.user) {
           await loadUserData(s.user.id);
@@ -62,7 +86,10 @@ export function AuthProvider({ children }) {
       }
     );
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [loadUserData]);
 
   const signOut = async () => {
