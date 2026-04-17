@@ -1,97 +1,24 @@
+import { useMemo, useState } from "react";
 import {
-  PieChart,
-  Pie,
-  Cell,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
+  PieChart, Pie, Cell, AreaChart, Area,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import {
-  Download,
-  ChevronDown,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  ShieldCheck,
-  CreditCard,
-  Lightbulb,
-  Copy,
-  Plane,
-  Package,
-  Users,
+  Download, ChevronDown, TrendingUp, TrendingDown,
+  AlertTriangle, ShieldCheck, CreditCard,
+  Lightbulb, Copy, Plane, Package, Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useDashboardKPIs } from "../hooks/useDashboard";
+import { useExpenses } from "../hooks/useExpenses";
+import { useAuth } from "../context/AuthContext";
 
-const PERIODS = ["Mar 2026", "Q1 2026", "YTD 2026", "Last 12 months"];
+// ── Constants ─────────────────────────────────────────────────────────────────
+const PERIODS = ["This Month", "Last Month", "This Quarter", "Last 12 months"];
 
-const kpiTiles = [
-  {
-    label: "Total Spend",
-    value: "$284,510",
-    change: "+12.4%",
-    changeLabel: "vs last month",
-    up: true,
-    icon: CreditCard,
-    iconColor: "text-blue-500",
-    iconBg: "bg-blue-50",
-  },
-  {
-    label: "Transactions",
-    value: "847",
-    change: "+8.2%",
-    changeLabel: "vs last month",
-    up: true,
-    icon: TrendingUp,
-    iconColor: "text-green-500",
-    iconBg: "bg-green-50",
-  },
-  {
-    label: "Avg Transaction",
-    value: "$336",
-    change: "-3.1%",
-    changeLabel: "vs last month",
-    up: false,
-    icon: TrendingDown,
-    iconColor: "text-orange-500",
-    iconBg: "bg-orange-50",
-  },
-  {
-    label: "Flagged Items",
-    value: "8",
-    change: "-2",
-    changeLabel: "vs last period",
-    up: false,
-    isGoodWhenDown: true,
-    icon: AlertTriangle,
-    iconColor: "text-amber-500",
-    iconBg: "bg-amber-50",
-  },
-  {
-    label: "Policy Compliance",
-    value: "94.2%",
-    change: "+1.8%",
-    changeLabel: "vs last month",
-    up: true,
-    icon: ShieldCheck,
-    iconColor: "text-green-500",
-    iconBg: "bg-green-50",
-  },
-];
-
-const pieData = [
-  { name: "SaaS", value: 89400, color: "#3B82F6" },
-  { name: "Travel", value: 67200, color: "#A855F7" },
-  { name: "Facilities", value: 42000, color: "#9CA3AF" },
-  { name: "Salaries", value: 180000, color: "#22C55E" },
-  { name: "Marketing", value: 42000, color: "#F97316" },
-  { name: "Other", value: 28900, color: "#64748B" },
+const PIE_COLORS = [
+  "#3B82F6", "#A855F7", "#9CA3AF", "#22C55E",
+  "#F97316", "#64748B", "#EF4444", "#F59E0B",
 ];
 
 const MONTHS = [
@@ -99,73 +26,140 @@ const MONTHS = [
   "Oct 25", "Nov 25", "Dec 25", "Jan 26", "Feb 26", "Mar 26",
 ];
 
-const spendData = [
+// Static spend history (would need a monthly aggregation RPC for real data)
+const STATIC_SPEND_HISTORY = [
   220000, 235000, 248000, 261000, 244000, 270000,
   285000, 294000, 278000, 310000, 298000, 284510,
-].map((spend, i) => ({
-  month: MONTHS[i],
-  spend,
-  budget: 250000,
-}));
+].map((spend, i) => ({ month: MONTHS[i], spend, budget: 250000 }));
 
-const vendorData = [
-  { vendor: "AWS", amount: 42100 },
-  { vendor: "Salesforce", amount: 38900 },
-  { vendor: "WeWork", amount: 33600 },
-  { vendor: "Delta Airlines", amount: 28400 },
-  { vendor: "Google Workspace", amount: 22800 },
-  { vendor: "Marriott Hotels", amount: 18200 },
-  { vendor: "Stripe", amount: 15600 },
-  { vendor: "LinkedIn", amount: 14400 },
-  { vendor: "Zoom", amount: 12800 },
-  { vendor: "Uber", amount: 8900 },
+// Static vendor list (would need merchant aggregation for real data)
+const STATIC_VENDORS = [
+  { vendor: "AWS", amount: 42100 }, { vendor: "Salesforce", amount: 38900 },
+  { vendor: "WeWork", amount: 33600 }, { vendor: "Delta Airlines", amount: 28400 },
+  { vendor: "Google Workspace", amount: 22800 }, { vendor: "Marriott Hotels", amount: 18200 },
+  { vendor: "Stripe", amount: 15600 }, { vendor: "LinkedIn", amount: 14400 },
+  { vendor: "Zoom", amount: 12800 }, { vendor: "Uber", amount: 8900 },
 ].reverse();
 
-const savings = [
-  {
-    icon: Copy,
-    title: "Duplicate SaaS Subscriptions",
-    desc: "Detected 3 overlapping project management tools",
-    saving: "$3,200/mo",
-  },
-  {
-    icon: Plane,
-    title: "Out-of-Policy Travel",
-    desc: "6 bookings above $1,500 threshold last month",
-    saving: "$4,800/mo",
-  },
-  {
-    icon: Package,
-    title: "Vendor Consolidation",
-    desc: "4 vendors in same category, consolidate to 2",
-    saving: "$1,400/mo",
-  },
-  {
-    icon: Users,
-    title: "Unused Licenses",
-    desc: "8 Salesforce seats not logged in 90+ days",
-    saving: "$2,240/mo",
-  },
+const SAVINGS = [
+  { icon: Copy,    title: "Duplicate SaaS Subscriptions",  desc: "Detected 3 overlapping project management tools", saving: "3,200/mo" },
+  { icon: Plane,   title: "Out-of-Policy Travel",          desc: "6 bookings above spend threshold last month",     saving: "4,800/mo" },
+  { icon: Package, title: "Vendor Consolidation",          desc: "4 vendors in same category, consolidate to 2",    saving: "1,400/mo" },
+  { icon: Users,   title: "Unused Licenses",               desc: "8 Salesforce seats not logged in 90+ days",       saving: "2,240/mo" },
 ];
 
-const teamRows = [
-  { team: "Engineering", mtd: "$89,400", budget: "$95,000", lastMonth: "+6.2%", topVendor: "AWS" },
-  { team: "Sales", mtd: "$67,200", budget: "$70,000", lastMonth: "+3.8%", topVendor: "Salesforce" },
-  { team: "Marketing", mtd: "$42,000", budget: "$45,000", lastMonth: "+9.1%", topVendor: "LinkedIn" },
-  { team: "Operations", mtd: "$38,900", budget: "$40,000", lastMonth: "-1.2%", topVendor: "WeWork" },
-  { team: "Finance", mtd: "$28,400", budget: "$30,000", lastMonth: "+4.5%", topVendor: "Stripe" },
-  { team: "HR", mtd: "$18,610", budget: "$20,000", lastMonth: "+2.1%", topVendor: "LinkedIn" },
-];
+function Skeleton({ className = "" }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+}
 
-const formatCurrency = (v) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+function fmtCurrency(amountMinor, currency = "GHS") {
+  const v = (amountMinor ?? 0) / 100;
+  return new Intl.NumberFormat("en-GH", {
+    style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(v);
+}
 
-const _unused = {
-};
+function fmtCurrencyDirect(v, currency = "GHS") {
+  return new Intl.NumberFormat("en-GH", {
+    style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0,
+  }).format(v);
+}
 
 export default function Analytics() {
-  const [period, setPeriod] = useState("Mar 2026");
+  const { orgCurrency = "GHS" } = useAuth();
+  const [period, setPeriod] = useState("This Month");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Real data
+  const { data: kpis, isLoading: kpisLoading } = useDashboardKPIs();
+
+  // MTD expenses for category breakdown
+  const now = new Date();
+  const mtdStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const { data: mtdExpenses = [], isLoading: expLoading } = useExpenses({
+    dateFrom: mtdStart,
+  });
+
+  // Build category breakdown from real expenses
+  const pieData = useMemo(() => {
+    const map = {};
+    for (const e of mtdExpenses) {
+      const cat = e.transaction_categories?.name ?? "Uncategorized";
+      map[cat] = (map[cat] ?? 0) + (e.amount ?? 0);
+    }
+    return Object.entries(map)
+      .map(([name, value], idx) => ({
+        name,
+        value,
+        color: PIE_COLORS[idx % PIE_COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+  }, [mtdExpenses]);
+
+  const pieTotalMinor = pieData.reduce((s, d) => s + d.value, 0);
+
+  // Derive KPI values
+  const totalSpend     = kpis?.expensesMTD ?? 0;
+  const txnCount       = kpis?.recentTransactions?.length ?? 0;
+  const avgTxnMinor    = txnCount > 0 ? Math.round(totalSpend / txnCount) : 0;
+  const pendingApprv   = kpis?.pendingApprovals ?? 0;
+
+  const isLoading = kpisLoading || expLoading;
+
+  const kpiTiles = [
+    {
+      label: "Total Spend",
+      value: isLoading ? "—" : fmtCurrency(totalSpend, orgCurrency),
+      change: "+12.4%",
+      changeLabel: "vs last month",
+      up: true,
+      icon: CreditCard,
+      iconColor: "text-blue-500",
+      iconBg: "bg-blue-50",
+    },
+    {
+      label: "Transactions",
+      value: isLoading ? "—" : txnCount.toLocaleString(),
+      change: "+8.2%",
+      changeLabel: "vs last month",
+      up: true,
+      icon: TrendingUp,
+      iconColor: "text-green-500",
+      iconBg: "bg-green-50",
+    },
+    {
+      label: "Avg Transaction",
+      value: isLoading ? "—" : fmtCurrency(avgTxnMinor, orgCurrency),
+      change: "-3.1%",
+      changeLabel: "vs last month",
+      up: false,
+      icon: TrendingDown,
+      iconColor: "text-orange-500",
+      iconBg: "bg-orange-50",
+    },
+    {
+      label: "Pending Approvals",
+      value: isLoading ? "—" : pendingApprv.toString(),
+      change: `${pendingApprv}`,
+      changeLabel: "awaiting review",
+      up: false,
+      isGoodWhenDown: true,
+      icon: AlertTriangle,
+      iconColor: "text-amber-500",
+      iconBg: "bg-amber-50",
+    },
+    {
+      label: "Policy Compliance",
+      value: "94.2%",
+      change: "+1.8%",
+      changeLabel: "vs last month",
+      up: true,
+      icon: ShieldCheck,
+      iconColor: "text-green-500",
+      iconBg: "bg-green-50",
+    },
+  ];
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-8">
@@ -173,7 +167,6 @@ export default function Analytics() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-[#111827]">Analytics</h1>
         <div className="flex items-center gap-3">
-          {/* Period selector */}
           <div className="relative">
             <button
               onClick={() => setDropdownOpen((o) => !o)}
@@ -198,7 +191,6 @@ export default function Analytics() {
               </div>
             )}
           </div>
-          {/* Export button */}
           <button className="flex items-center gap-2 bg-[#22C55E] text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 transition-colors shadow-sm">
             <Download size={16} />
             Export Report
@@ -219,15 +211,17 @@ export default function Analytics() {
                 </div>
                 <span
                   className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                    isPositive
-                      ? "bg-green-50 text-green-600"
-                      : "bg-red-50 text-red-500"
+                    isPositive ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500"
                   }`}
                 >
                   {tile.change}
                 </span>
               </div>
-              <p className="text-2xl font-bold text-[#111827] tabular-nums mb-1">{tile.value}</p>
+              {isLoading ? (
+                <Skeleton className="h-8 w-24 mb-1" />
+              ) : (
+                <p className="text-2xl font-bold text-[#111827] tabular-nums mb-1">{tile.value}</p>
+              )}
               <p className="text-xs text-[#6B7280]">{tile.label}</p>
               <p className="text-xs text-[#6B7280] mt-0.5">{tile.changeLabel}</p>
             </div>
@@ -242,54 +236,63 @@ export default function Analytics() {
           {/* Spend by Category */}
           <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-sm p-6">
             <h2 className="text-base font-semibold text-[#111827] mb-4">Spend by Category</h2>
-            <div className="flex items-center gap-6">
-              <div className="relative" style={{ width: 260, height: 240 }}>
-                <ResponsiveContainer width={260} height={240}>
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={75}
-                      outerRadius={110}
-                      paddingAngle={2}
-                      dataKey="value"
-                      labelLine={false}
-                    >
-                      {pieData.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v) => formatCurrency(v)} />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-lg font-bold tabular-nums text-gray-900">$449,500</span>
-                  <span className="text-xs text-gray-500">total</span>
+            {expLoading ? (
+              <Skeleton className="h-48 w-full rounded-lg" />
+            ) : pieData.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-10">No expense data for this period</p>
+            ) : (
+              <div className="flex items-center gap-6">
+                <div className="relative" style={{ width: 260, height: 240 }}>
+                  <ResponsiveContainer width={260} height={240}>
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%" cy="50%"
+                        innerRadius={75} outerRadius={110}
+                        paddingAngle={2} dataKey="value"
+                        labelLine={false}
+                      >
+                        {pieData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(v) => fmtCurrency(v, orgCurrency)}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-lg font-bold tabular-nums text-gray-900">
+                      {fmtCurrency(pieTotalMinor, orgCurrency)}
+                    </span>
+                    <span className="text-xs text-gray-500">total</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2.5 flex-1">
+                  {pieData.map((d) => (
+                    <div key={d.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: d.color }}
+                        />
+                        <span className="text-sm text-[#111827]">{d.name}</span>
+                      </div>
+                      <span className="text-sm font-medium text-[#111827] tabular-nums">
+                        {fmtCurrency(d.value, orgCurrency)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
-              {/* Legend */}
-              <div className="flex flex-col gap-2.5 flex-1">
-                {pieData.map((d) => (
-                  <div key={d.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: d.color }} />
-                      <span className="text-sm text-[#111827]">{d.name}</span>
-                    </div>
-                    <span className="text-sm font-medium text-[#111827] tabular-nums">
-                      {formatCurrency(d.value)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* 12-Month Rolling Spend */}
           <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-sm p-6">
             <h2 className="text-base font-semibold text-[#111827] mb-4">12-Month Rolling Spend</h2>
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={spendData} margin={{ top: 4, right: 8, bottom: 0, left: 10 }}>
+              <AreaChart data={STATIC_SPEND_HISTORY} margin={{ top: 4, right: 8, bottom: 0, left: 10 }}>
                 <defs>
                   <linearGradient id="colorSpend" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22C55E" stopOpacity={0.2} />
@@ -300,32 +303,13 @@ export default function Analytics() {
                 <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6B7280" }} tickLine={false} axisLine={false} />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#6B7280" }}
-                  tickLine={false}
-                  axisLine={false}
+                  tickLine={false} axisLine={false}
                   tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                 />
-                <Tooltip formatter={(v, name) => [formatCurrency(v), name === "spend" ? "Total Spend" : "Budget"]} />
-                <Legend
-                  formatter={(v) => (v === "spend" ? "Total Spend" : "Budget")}
-                  wrapperStyle={{ fontSize: 12 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="spend"
-                  name="spend"
-                  stroke="#22C55E"
-                  strokeWidth={2}
-                  fill="url(#colorSpend)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="budget"
-                  name="budget"
-                  stroke="#9CA3AF"
-                  strokeWidth={1.5}
-                  strokeDasharray="5 4"
-                  fill="none"
-                />
+                <Tooltip formatter={(v, name) => [fmtCurrencyDirect(v / 100, orgCurrency), name === "spend" ? "Total Spend" : "Budget"]} />
+                <Legend formatter={(v) => v === "spend" ? "Total Spend" : "Budget"} wrapperStyle={{ fontSize: 12 }} />
+                <Area type="monotone" dataKey="spend" name="spend" stroke="#22C55E" strokeWidth={2} fill="url(#colorSpend)" />
+                <Area type="monotone" dataKey="budget" name="budget" stroke="#9CA3AF" strokeWidth={1.5} strokeDasharray="5 4" fill="none" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -335,30 +319,13 @@ export default function Analytics() {
         <div className="flex flex-col gap-6">
           {/* Top 10 Vendors */}
           <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-sm p-6">
-            <h2 className="text-base font-semibold text-[#111827] mb-4">Top 10 Vendors</h2>
+            <h2 className="text-base font-semibold text-[#111827] mb-4">Top Vendors</h2>
             <ResponsiveContainer width="100%" height={280}>
-              <BarChart
-                data={vendorData}
-                layout="vertical"
-                margin={{ top: 0, right: 12, bottom: 0, left: 0 }}
-              >
+              <BarChart data={STATIC_VENDORS} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#F3F4F6" />
-                <XAxis
-                  type="number"
-                  tick={{ fontSize: 10, fill: "#6B7280" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="vendor"
-                  tick={{ fontSize: 10, fill: "#6B7280" }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={100}
-                />
-                <Tooltip formatter={(v) => [formatCurrency(v), "Amount"]} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: "#6B7280" }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                <YAxis type="category" dataKey="vendor" tick={{ fontSize: 10, fill: "#6B7280" }} tickLine={false} axisLine={false} width={100} />
+                <Tooltip formatter={(v) => [fmtCurrencyDirect(v / 100, orgCurrency), "Amount"]} />
                 <Bar dataKey="amount" fill="#22C55E" radius={[0, 4, 4, 0]} barSize={14} />
               </BarChart>
             </ResponsiveContainer>
@@ -373,7 +340,7 @@ export default function Analytics() {
               <h2 className="text-base font-semibold text-[#111827]">Savings Recommendations</h2>
             </div>
             <div className="flex flex-col gap-4">
-              {savings.map((item) => {
+              {SAVINGS.map((item) => {
                 const Icon = item.icon;
                 return (
                   <div key={item.title} className="flex items-start gap-3">
@@ -383,7 +350,9 @@ export default function Analytics() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-[#111827] leading-tight">{item.title}</p>
                       <p className="text-xs text-[#6B7280] mt-0.5 leading-snug">{item.desc}</p>
-                      <p className="text-xs font-semibold text-[#22C55E] mt-1 tabular-nums">Save {item.saving}</p>
+                      <p className="text-xs font-semibold text-[#22C55E] mt-1 tabular-nums">
+                        Save {orgCurrency === "GHS" ? "₵" : "$"}{item.saving}
+                      </p>
                     </div>
                   </div>
                 );
@@ -393,46 +362,28 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Spend Trend by Team */}
+      {/* Spend Trend by Team — would need dept aggregation RPC; shown as indicative */}
       <div className="bg-white rounded-lg border border-[#E5E7EB] shadow-sm p-6">
-        <h2 className="text-base font-semibold text-[#111827] mb-4">Spend Trend by Team</h2>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-[#E5E7EB]">
-              <th className="text-left font-medium text-[#6B7280] pb-3 pr-4">Team</th>
-              <th className="text-right font-medium text-[#6B7280] pb-3 px-4">MTD Spend</th>
-              <th className="text-right font-medium text-[#6B7280] pb-3 px-4">vs Budget</th>
-              <th className="text-right font-medium text-[#6B7280] pb-3 px-4">vs Last Month</th>
-              <th className="text-right font-medium text-[#6B7280] pb-3 pl-4">Top Vendor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {teamRows.map((row, i) => {
-              const isUp = row.lastMonth.startsWith("+");
-              return (
-                <tr
-                  key={row.team}
-                  className={`border-b border-[#E5E7EB] last:border-0 ${i % 2 === 0 ? "" : "bg-gray-50/50"}`}
-                >
-                  <td className="py-3 pr-4 font-medium text-[#111827]">{row.team}</td>
-                  <td className="py-3 px-4 text-right tabular-nums text-[#111827] font-medium">{row.mtd}</td>
-                  <td className="py-3 px-4 text-right tabular-nums text-[#6B7280]">{row.budget}</td>
-                  <td className="py-3 px-4 text-right tabular-nums">
-                    <span
-                      className={`inline-flex items-center gap-0.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-                        isUp ? "bg-green-50 text-green-600" : "bg-red-50 text-red-500"
-                      }`}
-                    >
-                      {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                      {row.lastMonth}
-                    </span>
-                  </td>
-                  <td className="py-3 pl-4 text-right text-[#6B7280]">{row.topVendor}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-[#111827]">Spend by Department</h2>
+          <span className="text-xs text-gray-400">Department aggregation coming soon</span>
+        </div>
+        {isLoading ? (
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+          </div>
+        ) : kpis?.expensesMTD != null ? (
+          <div className="text-center py-6">
+            <p className="text-sm text-gray-500">
+              Total MTD spend: <span className="font-semibold text-gray-900">{fmtCurrency(kpis.expensesMTD, orgCurrency)}</span>
+            </p>
+            <p className="text-xs text-gray-400 mt-1">
+              Connect your departments and card data for per-team breakdowns.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-6">No spend data available</p>
+        )}
       </div>
     </div>
   );

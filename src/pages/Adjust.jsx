@@ -12,162 +12,43 @@ import {
   Paperclip,
   CheckCircle2,
 } from "lucide-react";
+import { useJournalEntries, useCreateJournalEntry } from "../hooks/useJournalEntries";
+import { useChartOfAccounts } from "../hooks/useChartOfAccounts";
+import { useFinancialPeriods } from "../hooks/useFinancialPeriods";
+import { useAuth } from "../context/AuthContext";
 
 const ADJUSTMENT_TYPES = [
-  {
-    id: "accrual",
-    label: "Accrual Entry",
-    icon: Clock,
-    color: "text-blue-500",
-    bg: "bg-blue-50",
-    description: "Record revenue or expense before cash settlement",
-  },
-  {
-    id: "prepaid",
-    label: "Prepaid Expense",
-    icon: CreditCard,
-    color: "text-purple-500",
-    bg: "bg-purple-50",
-    description: "Amortize prepaid costs over time",
-  },
-  {
-    id: "depreciation",
-    label: "Depreciation",
-    icon: TrendingDown,
-    color: "text-orange-500",
-    bg: "bg-orange-50",
-    description: "Record asset depreciation adjustments",
-  },
-  {
-    id: "reclassification",
-    label: "Reclassification",
-    icon: ArrowLeftRight,
-    color: "text-teal-500",
-    bg: "bg-teal-50",
-    description: "Move transactions between accounts",
-  },
-  {
-    id: "revenue",
-    label: "Revenue Recognition",
-    icon: DollarSign,
-    color: "text-green-500",
-    bg: "bg-green-50",
-    description: "Recognize deferred revenue as earned",
-  },
-  {
-    id: "correction",
-    label: "Correction Entry",
-    icon: AlertCircle,
-    color: "text-red-500",
-    bg: "bg-red-50",
-    description: "Fix errors in previously posted transactions",
-  },
+  { id: "accrual",          label: "Accrual Entry",           icon: Clock,          color: "text-blue-500",   bg: "bg-blue-50",   description: "Record revenue or expense before cash settlement" },
+  { id: "prepaid",          label: "Prepaid Expense",         icon: CreditCard,     color: "text-purple-500", bg: "bg-purple-50", description: "Amortize prepaid costs over time" },
+  { id: "depreciation",     label: "Depreciation",            icon: TrendingDown,   color: "text-orange-500", bg: "bg-orange-50", description: "Record asset depreciation adjustments" },
+  { id: "reclassification", label: "Reclassification",        icon: ArrowLeftRight, color: "text-teal-500",   bg: "bg-teal-50",   description: "Move transactions between accounts" },
+  { id: "revenue",          label: "Revenue Recognition",     icon: DollarSign,     color: "text-green-500",  bg: "bg-green-50",  description: "Recognize deferred revenue as earned" },
+  { id: "correction",       label: "Correction Entry",        icon: AlertCircle,    color: "text-red-500",    bg: "bg-red-50",    description: "Fix errors in previously posted transactions" },
 ];
 
 const STEPS = ["Select Accounts", "Enter Amounts", "Add Details", "Review & Post"];
 
-const ACCOUNTS = [
-  "Salaries Expense",
-  "Accrued Liabilities",
-  "Depreciation Expense",
-  "Accumulated Depreciation",
-  "Insurance Expense",
-  "Prepaid Insurance",
-  "Brand & PR",
-  "Marketing",
-  "Deferred Revenue",
-  "Product Revenue",
-  "Accounts Payable",
-  "Consulting Fees",
-  "SaaS Expense",
-  "Prepaid SaaS",
-  "Cash – Ecobank Main",
-  "Accounts Receivable",
-];
+function Skeleton({ className = "" }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+}
 
-const HISTORY = [
-  {
-    date: "Mar 31, 2026",
-    type: "Accrual",
-    description: "March payroll accrual",
-    debit: "Salaries Expense",
-    credit: "Accrued Liabilities",
-    amount: "$45,000",
-    postedBy: "Abena Owusu",
-    status: "Posted",
-  },
-  {
-    date: "Mar 31, 2026",
-    type: "Depreciation",
-    description: "Equipment Q1 depreciation",
-    debit: "Depreciation Expense",
-    credit: "Accumulated Depreciation",
-    amount: "$9,200",
-    postedBy: "Abena Owusu",
-    status: "Posted",
-  },
-  {
-    date: "Mar 30, 2026",
-    type: "Prepaid",
-    description: "Insurance prepaid amortization",
-    debit: "Insurance Expense",
-    credit: "Prepaid Insurance",
-    amount: "$2,400",
-    postedBy: "Kofi Mensah",
-    status: "Posted",
-  },
-  {
-    date: "Mar 28, 2026",
-    type: "Reclassification",
-    description: "Marketing to brand expense",
-    debit: "Brand & PR",
-    credit: "Marketing",
-    amount: "$3,500",
-    postedBy: "Ama Darko",
-    status: "Posted",
-  },
-  {
-    date: "Mar 25, 2026",
-    type: "Revenue Recognition",
-    description: "Feb deferred SaaS revenue",
-    debit: "Deferred Revenue",
-    credit: "Product Revenue",
-    amount: "$18,000",
-    postedBy: "Abena Owusu",
-    status: "Posted",
-  },
-  {
-    date: "Mar 20, 2026",
-    type: "Correction",
-    description: "Fix vendor payment coding",
-    debit: "Accounts Payable",
-    credit: "Consulting Fees",
-    amount: "$5,200",
-    postedBy: "Kofi Mensah",
-    status: "Posted",
-  },
-  {
-    date: "Mar 15, 2026",
-    type: "Accrual",
-    description: "Q1 bonus accrual",
-    debit: "Salary Expense",
-    credit: "Accrued Liabilities",
-    amount: "$22,000",
-    postedBy: "Abena Owusu",
-    status: "Draft",
-  },
-  {
-    date: "Mar 10, 2026",
-    type: "Prepaid",
-    description: "SaaS license amortization",
-    debit: "SaaS Expense",
-    credit: "Prepaid SaaS",
-    amount: "$1,800",
-    postedBy: "Adwoa Frimpong",
-    status: "Posted",
-  },
-];
+function fmt(val, currency = "GHS") {
+  const amount = (val ?? 0) / 100;
+  return new Intl.NumberFormat("en-GH", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
 
+function formatDate(str) {
+  if (!str) return "—";
+  return new Date(str).toLocaleDateString("en-US", {
+    year: "numeric", month: "short", day: "numeric",
+  });
+}
+
+// ── Progress Bar ─────────────────────────────────────────────────────────────
 function ProgressBar({ currentStep }) {
   return (
     <div className="flex items-center gap-0 mb-8">
@@ -206,12 +87,18 @@ function ProgressBar({ currentStep }) {
   );
 }
 
-function AccountDropdown({ label, value, onChange }) {
+// ── Account Dropdown (backed by real COA) ────────────────────────────────────
+function AccountDropdown({ label, value, onChange, accounts }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const filtered = ACCOUNTS.filter((a) =>
-    a.toLowerCase().includes(query.toLowerCase())
-  );
+
+  const filtered = accounts.filter((a) => {
+    const q = query.toLowerCase();
+    return (
+      a.name.toLowerCase().includes(q) ||
+      (a.code ?? "").toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="relative">
@@ -221,35 +108,43 @@ function AccountDropdown({ label, value, onChange }) {
         onClick={() => setOpen(!open)}
       >
         <span className={value ? "text-gray-900" : "text-gray-400"}>
-          {value || "Search and select account..."}
+          {value ? `${value.code} – ${value.name}` : "Search and select account…"}
         </span>
-        <ChevronRight size={14} className={`text-gray-400 transition-transform ${open ? "rotate-90" : ""}`} />
+        <ChevronRight
+          size={14}
+          className={`text-gray-400 transition-transform ${open ? "rotate-90" : ""}`}
+        />
       </div>
       {open && (
         <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg">
           <div className="p-2 border-b border-gray-100">
             <input
               className="w-full text-sm outline-none px-2 py-1"
-              placeholder="Type to search..."
+              placeholder="Type to search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               autoFocus
             />
           </div>
           <ul className="max-h-44 overflow-y-auto">
-            {filtered.map((a) => (
-              <li
-                key={a}
-                className="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
-                onClick={() => {
-                  onChange(a);
-                  setOpen(false);
-                  setQuery("");
-                }}
-              >
-                {a}
-              </li>
-            ))}
+            {filtered.length === 0 ? (
+              <li className="px-3 py-2 text-sm text-gray-400">No accounts found</li>
+            ) : (
+              filtered.map((a) => (
+                <li
+                  key={a.id}
+                  className="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
+                  onClick={() => {
+                    onChange({ id: a.id, code: a.code, name: a.name });
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                >
+                  <span className="font-mono text-gray-500 mr-2">{a.code}</span>
+                  {a.name}
+                </li>
+              ))
+            )}
           </ul>
         </div>
       )}
@@ -257,30 +152,38 @@ function AccountDropdown({ label, value, onChange }) {
   );
 }
 
-function WizardStep1({ form, setForm }) {
+// ── Wizard Steps ─────────────────────────────────────────────────────────────
+function WizardStep1({ form, setForm, accounts }) {
   return (
     <div className="grid grid-cols-2 gap-6">
       <AccountDropdown
         label="Debit Account"
         value={form.debitAccount}
         onChange={(v) => setForm((f) => ({ ...f, debitAccount: v }))}
+        accounts={accounts}
       />
       <AccountDropdown
         label="Credit Account"
         value={form.creditAccount}
         onChange={(v) => setForm((f) => ({ ...f, creditAccount: v }))}
+        accounts={accounts}
       />
     </div>
   );
 }
 
-function WizardStep2({ form, setForm }) {
+function WizardStep2({ form, setForm, periods }) {
+  const { orgCurrency } = useAuth();
+  const symbol = orgCurrency === "USD" ? "$" : orgCurrency === "GBP" ? "£" : "₵";
+
   return (
     <div className="grid grid-cols-3 gap-6">
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
         <div className="relative">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+            {symbol}
+          </span>
           <input
             type="number"
             className="w-full border border-gray-200 rounded-md pl-7 pr-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-green-300"
@@ -303,14 +206,13 @@ function WizardStep2({ form, setForm }) {
         <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
         <select
           className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 bg-white"
-          value={form.period}
-          onChange={(e) => setForm((f) => ({ ...f, period: e.target.value }))}
+          value={form.periodId}
+          onChange={(e) => setForm((f) => ({ ...f, periodId: e.target.value }))}
         >
-          <option value="">Select period...</option>
-          <option value="Q1 2026">Q1 2026</option>
-          <option value="March 2026">March 2026</option>
-          <option value="February 2026">February 2026</option>
-          <option value="January 2026">January 2026</option>
+          <option value="">Select period…</option>
+          {(periods ?? []).map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
         </select>
       </div>
     </div>
@@ -325,7 +227,7 @@ function WizardStep3({ form, setForm }) {
         <textarea
           rows={3}
           className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
-          placeholder="Describe the purpose of this adjustment..."
+          placeholder="Describe the purpose of this adjustment…"
           value={form.description}
           onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
         />
@@ -345,8 +247,7 @@ function WizardStep3({ form, setForm }) {
         <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 flex flex-col items-center justify-center text-center hover:border-green-400 transition-colors cursor-pointer">
           <Paperclip size={24} className="text-gray-400 mb-2" />
           <p className="text-sm text-gray-500">
-            Drop files here or{" "}
-            <span className="text-green-500 font-medium">browse</span>
+            Drop files here or <span className="text-green-500 font-medium">browse</span>
           </p>
           <p className="text-xs text-gray-400 mt-1">PDF, PNG, XLSX up to 10MB</p>
         </div>
@@ -357,6 +258,8 @@ function WizardStep3({ form, setForm }) {
 
 function WizardStep4({ form, selectedType }) {
   const typeLabel = ADJUSTMENT_TYPES.find((t) => t.id === selectedType)?.label || "";
+  const amount = parseFloat(form.amount || "0");
+
   return (
     <div className="grid grid-cols-3 gap-6">
       <div className="col-span-2">
@@ -365,11 +268,11 @@ function WizardStep4({ form, selectedType }) {
           <tbody>
             {[
               ["Type", typeLabel],
-              ["Debit Account", form.debitAccount || "—"],
-              ["Credit Account", form.creditAccount || "—"],
-              ["Amount", form.amount ? `$${Number(form.amount).toLocaleString()}` : "—"],
+              ["Debit Account", form.debitAccount ? `${form.debitAccount.code} – ${form.debitAccount.name}` : "—"],
+              ["Credit Account", form.creditAccount ? `${form.creditAccount.code} – ${form.creditAccount.name}` : "—"],
+              ["Amount", amount ? `${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—"],
               ["Date", form.date || "—"],
-              ["Period", form.period || "—"],
+              ["Period", form.periodId || "—"],
               ["Description", form.description || "—"],
               ["Reference", form.reference || "—"],
             ].map(([key, val]) => (
@@ -385,9 +288,7 @@ function WizardStep4({ form, selectedType }) {
         <h4 className="text-sm font-semibold text-gray-700 mb-3">Impact Preview</h4>
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              P&L Impact
-            </p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">P&L Impact</p>
             <div className="space-y-1">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Revenue</span>
@@ -396,21 +297,19 @@ function WizardStep4({ form, selectedType }) {
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Expenses</span>
                 <span className="tabular-nums text-red-500">
-                  {form.amount ? `+$${Number(form.amount).toLocaleString()}` : "—"}
+                  {amount ? `+${amount.toLocaleString()}` : "—"}
                 </span>
               </div>
               <div className="flex justify-between text-sm font-semibold border-t border-gray-200 pt-1 mt-1">
                 <span className="text-gray-700">Net Income</span>
                 <span className="tabular-nums text-red-500">
-                  {form.amount ? `-$${Number(form.amount).toLocaleString()}` : "—"}
+                  {amount ? `-${amount.toLocaleString()}` : "—"}
                 </span>
               </div>
             </div>
           </div>
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Balance Sheet
-            </p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Balance Sheet</p>
             <div className="space-y-1">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Assets</span>
@@ -419,13 +318,13 @@ function WizardStep4({ form, selectedType }) {
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Liabilities</span>
                 <span className="tabular-nums text-green-600">
-                  {form.amount ? `+$${Number(form.amount).toLocaleString()}` : "—"}
+                  {amount ? `+${amount.toLocaleString()}` : "—"}
                 </span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Equity</span>
                 <span className="tabular-nums text-red-500">
-                  {form.amount ? `-$${Number(form.amount).toLocaleString()}` : "—"}
+                  {amount ? `-${amount.toLocaleString()}` : "—"}
                 </span>
               </div>
             </div>
@@ -436,32 +335,41 @@ function WizardStep4({ form, selectedType }) {
   );
 }
 
+const EMPTY_FORM = {
+  debitAccount: null,
+  creditAccount: null,
+  amount: "",
+  date: "",
+  periodId: "",
+  description: "",
+  reference: "",
+};
+
 export default function Adjust() {
+  const { orgCurrency } = useAuth();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedType, setSelectedType] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
-  const [form, setForm] = useState({
-    debitAccount: "",
-    creditAccount: "",
-    amount: "",
-    date: "",
-    period: "",
-    description: "",
-    reference: "",
-  });
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  const { data: accounts = [] } = useChartOfAccounts({ isActive: true });
+  const { data: periods = [] } = useFinancialPeriods();
+  const { data: entries = [], isLoading: entriesLoading } = useJournalEntries();
+  const createMut = useCreateJournalEntry();
+
+  const filteredEntries = searchQuery
+    ? entries.filter(
+        (e) =>
+          (e.memo ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (e.reference_number ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (e.type ?? "").toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : entries;
 
   const handleCardClick = (typeId) => {
     setSelectedType(typeId);
     setCurrentStep(0);
-    setForm({
-      debitAccount: "",
-      creditAccount: "",
-      amount: "",
-      date: "",
-      period: "",
-      description: "",
-      reference: "",
-    });
+    setForm(EMPTY_FORM);
   };
 
   const handleNext = () => {
@@ -475,34 +383,57 @@ export default function Adjust() {
 
   const isLastStep = currentStep === STEPS.length - 1;
 
+  const handlePost = () => {
+    const amountMinor = Math.round(parseFloat(form.amount || "0") * 100);
+    createMut.mutate(
+      {
+        entry: {
+          type: selectedType,
+          entry_date: form.date || new Date().toISOString().split("T")[0],
+          memo: form.description,
+          reference_number: form.reference || null,
+          period_id: form.periodId || null,
+          status: "posted",
+        },
+        lines: [
+          {
+            account_id: form.debitAccount?.id,
+            debit_amount: amountMinor,
+            credit_amount: 0,
+          },
+          {
+            account_id: form.creditAccount?.id,
+            debit_amount: 0,
+            credit_amount: amountMinor,
+          },
+        ],
+      },
+      { onSuccess: () => setSelectedType(null) }
+    );
+  };
+
   return (
     <div className="min-h-screen bg-[#F7F7F8] py-8 px-4">
       <div className="max-w-4xl mx-auto space-y-8">
-
         {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-[#111827]">Journal Adjustments</h1>
-          <p className="text-[#6B7280] mt-1 text-sm">
-            Create manual journal entries and corrections
-          </p>
+          <p className="text-[#6B7280] mt-1 text-sm">Create manual journal entries and corrections</p>
         </div>
 
         {/* Search */}
         <div className="relative">
-          <Search
-            size={16}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-          />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
             className="w-full bg-white border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-green-300 placeholder:text-gray-400"
-            placeholder="Search accounts, transactions, or adjustments..."
+            placeholder="Search accounts, transactions, or adjustments…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
 
-        {/* Adjustment Types */}
+        {/* Adjustment Type Cards */}
         <div>
           <h2 className="text-base font-semibold text-[#111827] mb-4">Adjustment Types</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -544,8 +475,12 @@ export default function Adjust() {
             <ProgressBar currentStep={currentStep} />
 
             <div className="min-h-[180px]">
-              {currentStep === 0 && <WizardStep1 form={form} setForm={setForm} />}
-              {currentStep === 1 && <WizardStep2 form={form} setForm={setForm} />}
+              {currentStep === 0 && (
+                <WizardStep1 form={form} setForm={setForm} accounts={accounts} />
+              )}
+              {currentStep === 1 && (
+                <WizardStep2 form={form} setForm={setForm} periods={periods} />
+              )}
               {currentStep === 2 && <WizardStep3 form={form} setForm={setForm} />}
               {currentStep === 3 && (
                 <WizardStep4 form={form} selectedType={selectedType} />
@@ -561,10 +496,13 @@ export default function Adjust() {
                 Back
               </button>
               <button
-                onClick={isLastStep ? () => setSelectedType(null) : handleNext}
-                className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors"
+                onClick={isLastStep ? handlePost : handleNext}
+                disabled={isLastStep && createMut.isPending}
+                className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors disabled:opacity-50"
               >
-                {isLastStep ? "Post Entry" : "Next"}
+                {isLastStep
+                  ? createMut.isPending ? "Posting…" : "Post Entry"
+                  : "Next"}
                 {!isLastStep && <ChevronRight size={16} />}
               </button>
             </div>
@@ -575,51 +513,83 @@ export default function Adjust() {
         <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
           <h2 className="text-base font-semibold text-[#111827] mb-4">Adjustment History</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  {["Date", "Type", "Description", "Debit Account", "Credit Account", "Amount", "Posted By", "Status"].map(
-                    (col) => (
+            {entriesLoading ? (
+              <div className="space-y-3">
+                {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-8 w-full" />)}
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200">
+                    {["Date", "Type", "Description", "Reference", "Amount", "Posted By", "Status"].map((col) => (
                       <th
                         key={col}
                         className="text-left text-xs font-semibold text-[#6B7280] uppercase tracking-wide pb-3 pr-4 last:pr-0"
                       >
                         {col}
                       </th>
-                    )
-                  )}
-                </tr>
-              </thead>
-              <tbody>
-                {HISTORY.map((row, idx) => (
-                  <tr
-                    key={idx}
-                    className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors"
-                  >
-                    <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">{row.date}</td>
-                    <td className="py-3 pr-4 text-gray-900 font-medium whitespace-nowrap">{row.type}</td>
-                    <td className="py-3 pr-4 text-gray-600">{row.description}</td>
-                    <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">{row.debit}</td>
-                    <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">{row.credit}</td>
-                    <td className="py-3 pr-4 text-gray-900 font-medium tabular-nums whitespace-nowrap">
-                      {row.amount}
-                    </td>
-                    <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">{row.postedBy}</td>
-                    <td className="py-3">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          row.status === "Posted"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}
-                      >
-                        {row.status}
-                      </span>
-                    </td>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {filteredEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-sm text-gray-400">
+                        No journal entries yet
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredEntries.map((entry) => {
+                      const postedBy =
+                        entry.posted_by_profile?.full_name ??
+                        entry.created_by_profile?.full_name ??
+                        "—";
+                      const amount = entry.total_debit ?? entry.total_amount ?? 0;
+                      return (
+                        <tr
+                          key={entry.id}
+                          className="border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors"
+                        >
+                          <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">
+                            {formatDate(entry.entry_date)}
+                          </td>
+                          <td className="py-3 pr-4 text-gray-900 font-medium whitespace-nowrap capitalize">
+                            {entry.type?.replace(/_/g, " ") ?? "—"}
+                          </td>
+                          <td className="py-3 pr-4 text-gray-600 max-w-[200px] truncate">
+                            {entry.memo ?? "—"}
+                          </td>
+                          <td className="py-3 pr-4 text-gray-500 font-mono text-xs whitespace-nowrap">
+                            {entry.reference_number ?? "—"}
+                          </td>
+                          <td className="py-3 pr-4 text-gray-900 font-medium tabular-nums whitespace-nowrap">
+                            {amount > 0
+                              ? new Intl.NumberFormat("en-GH", {
+                                  style: "currency",
+                                  currency: orgCurrency ?? "GHS",
+                                  minimumFractionDigits: 2,
+                                }).format(amount / 100)
+                              : "—"}
+                          </td>
+                          <td className="py-3 pr-4 text-gray-600 whitespace-nowrap">{postedBy}</td>
+                          <td className="py-3">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                entry.status === "posted"
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-amber-100 text-amber-700"
+                              }`}
+                            >
+                              {entry.status === "posted" ? "Posted" : "Draft"}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>

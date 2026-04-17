@@ -107,3 +107,26 @@ export function useUnfreezeCard() {
       }),
   });
 }
+
+/** Issue a new card */
+export function useIssueCard() {
+  const { orgId, user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values) => {
+      const { data, error } = await supabase
+        .from("cards")
+        .insert({
+          ...values,
+          organization_id: orgId,
+          created_by: user?.id,
+          status: "active",
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cards", orgId] }),
+  });
+}

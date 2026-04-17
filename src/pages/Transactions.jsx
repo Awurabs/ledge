@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Search, X, CheckCircle, ChevronRight, ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { useTransactions, useUpdateTransaction, useTransactionCategories } from "../hooks/useTransactions";
+import { Search, X, CheckCircle, ChevronRight, ArrowDownLeft, ArrowUpRight, Plus } from "lucide-react";
+import { useTransactions, useUpdateTransaction, useTransactionCategories, useCreateTransaction } from "../hooks/useTransactions";
 import { useBankAccounts } from "../hooks/useBankAccounts";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
@@ -221,6 +221,173 @@ function PassPanel({ txn, categories, currency, onClose, onConfirm }) {
   );
 }
 
+// ── Add Transaction Modal ─────────────────────────────────────────────────────
+function AddTransactionModal({ onClose, bankAccounts, categories, currency }) {
+  const createMut = useCreateTransaction();
+  const currencySymbol = currency === "USD" ? "$" : currency === "GBP" ? "£" : "₵";
+  const today = new Date().toISOString().split("T")[0];
+
+  const [form, setForm] = useState({
+    description: "",
+    amount:      "",
+    direction:   "debit",
+    txn_date:    today,
+    bankAccountId: bankAccounts[0]?.id ?? "",
+    categoryId:    "",
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    createMut.mutate(
+      {
+        description:     form.description,
+        amount:          Math.round(parseFloat(form.amount || "0") * 100),
+        direction:       form.direction,
+        txn_date:        form.txn_date,
+        bank_account_id: form.bankAccountId || null,
+        category_id:     form.categoryId || null,
+        status:          "pending",
+      },
+      { onSuccess: () => onClose() }
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X size={18} />
+        </button>
+        <h2 className="text-base font-semibold text-gray-900 mb-5">Add Transaction</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Description <span className="text-red-400">*</span>
+            </label>
+            <input
+              required
+              type="text"
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              placeholder="e.g. Office supplies, Client payment…"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+
+          {/* Amount + Direction */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount <span className="text-red-400">*</span>
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                  {currencySymbol}
+                </span>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="w-full border border-gray-200 rounded-md pl-7 pr-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-green-300"
+                  placeholder="0.00"
+                  value={form.amount}
+                  onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <div className="flex gap-1 border border-gray-200 rounded-md overflow-hidden text-sm">
+                {[
+                  { value: "debit",  label: "Expense" },
+                  { value: "credit", label: "Income"  },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, direction: opt.value }))}
+                    className={`flex-1 py-2 text-xs font-medium transition-colors ${
+                      form.direction === opt.value
+                        ? opt.value === "credit"
+                          ? "bg-green-500 text-white"
+                          : "bg-gray-800 text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+            <input
+              type="date"
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.txn_date}
+              onChange={(e) => setForm((f) => ({ ...f, txn_date: e.target.value }))}
+            />
+          </div>
+
+          {/* Bank Account */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
+            <select
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.bankAccountId}
+              onChange={(e) => setForm((f) => ({ ...f, bankAccountId: e.target.value }))}
+            >
+              <option value="">No account selected</option>
+              {bankAccounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category (optional)</label>
+            <select
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.categoryId}
+              onChange={(e) => setForm((f) => ({ ...f, categoryId: e.target.value }))}
+            >
+              <option value="">Uncategorized</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.emoji ? `${c.emoji} ` : ""}{c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={createMut.isPending}
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+            >
+              {createMut.isPending ? "Adding…" : "Add Transaction"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ───────────────────────────────────────────────────────────────────
 export default function Transactions() {
   const { orgCurrency } = useAuth();
@@ -231,6 +398,7 @@ export default function Transactions() {
   const [search,        setSearch]        = useState("");
   const [panelTxn,      setPanelTxn]      = useState(null);
   const [toast,         setToast]         = useState(null);
+  const [showAddModal,  setShowAddModal]  = useState(false);
 
   // Build query filters for the hook
   const queryFilters = {
@@ -286,13 +454,32 @@ export default function Transactions() {
         />
       )}
 
+      {/* ── Add Transaction Modal ── */}
+      {showAddModal && (
+        <AddTransactionModal
+          onClose={() => setShowAddModal(false)}
+          bankAccounts={bankAccounts}
+          categories={categories}
+          currency={currency}
+        />
+      )}
+
       <div className="p-6 max-w-6xl">
         {/* Header */}
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Bank and mobile money activity — pass anything to your books
-          </p>
+        <div className="flex items-start justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Bank and mobile money activity — pass anything to your books
+            </p>
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-sm font-medium rounded-xl shadow-sm transition-colors shrink-0 mt-1"
+          >
+            <Plus size={15} />
+            Add Transaction
+          </button>
         </div>
 
         {/* Stat filter badges */}

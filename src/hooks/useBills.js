@@ -2,6 +2,23 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
+export function useCreateBillVendor() {
+  const { orgId, user } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values) => {
+      const { data, error } = await supabase
+        .from("bill_vendors")
+        .insert({ ...values, organization_id: orgId, created_by: user?.id, is_active: true })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bill_vendors", orgId] }),
+  });
+}
+
 export function useBillVendors() {
   const { orgId } = useAuth();
   return useQuery({

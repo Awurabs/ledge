@@ -1,10 +1,12 @@
 import { useState } from "react";
 import {
-  Plus, CreditCard, Snowflake, Eye, AlertTriangle, Sliders,
+  Plus, CreditCard, Snowflake, Eye, AlertTriangle, Sliders, X,
 } from "lucide-react";
 import {
-  useCards, useCardTransactions, useFreezeCard, useUnfreezeCard,
+  useCards, useCardTransactions, useFreezeCard, useUnfreezeCard, useIssueCard,
 } from "../hooks/useCards";
+import { useMembers } from "../hooks/useMembers";
+import { useDepartments } from "../hooks/useMembers";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -242,13 +244,159 @@ function CardDetail({ card, currency }) {
   );
 }
 
+// ── Issue Card Modal ───────────────────────────────────────────────────────────
+function IssueCardModal({ onClose, currency }) {
+  const { data: members = [] }     = useMembers({ activeOnly: true });
+  const { data: departments = [] } = useDepartments();
+  const issueCardMut = useIssueCard();
+
+  const currencySymbol = currency === "USD" ? "$" : currency === "GBP" ? "£" : "₵";
+  const [form, setForm] = useState({
+    memberId:    "",
+    type:        "virtual",
+    nickname:    "",
+    spendLimit:  "",
+    departmentId: "",
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    issueCardMut.mutate(
+      {
+        member_id:     form.memberId || null,
+        type:          form.type,
+        nickname:      form.nickname || null,
+        spend_limit:   form.spendLimit ? Math.round(parseFloat(form.spendLimit) * 100) : null,
+        department_id: form.departmentId || null,
+      },
+      { onSuccess: () => onClose() }
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X size={18} />
+        </button>
+        <h2 className="text-base font-semibold text-gray-900 mb-5">Issue New Card</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Card holder */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Card Holder</label>
+            <select
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.memberId}
+              onChange={(e) => setForm((f) => ({ ...f, memberId: e.target.value }))}
+            >
+              <option value="">No specific holder (team card)</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.profiles?.full_name ?? m.id}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Card type */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Card Type</label>
+            <div className="flex gap-2">
+              {["virtual", "physical"].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, type: t }))}
+                  className={`flex-1 py-2 text-sm font-medium rounded-md border transition-colors capitalize ${
+                    form.type === t
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Nickname */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nickname (optional)</label>
+            <input
+              type="text"
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              placeholder="e.g. Marketing Card, AWS Expenses"
+              value={form.nickname}
+              onChange={(e) => setForm((f) => ({ ...f, nickname: e.target.value }))}
+            />
+          </div>
+
+          {/* Spend limit */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Spend Limit (optional)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                {currencySymbol}
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="w-full border border-gray-200 rounded-md pl-7 pr-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-green-300"
+                placeholder="Leave blank for no limit"
+                value={form.spendLimit}
+                onChange={(e) => setForm((f) => ({ ...f, spendLimit: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {/* Department */}
+          {departments.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Department (optional)</label>
+              <select
+                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                value={form.departmentId}
+                onChange={(e) => setForm((f) => ({ ...f, departmentId: e.target.value }))}
+              >
+                <option value="">No department</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={issueCardMut.isPending}
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+            >
+              {issueCardMut.isPending ? "Issuing…" : "Issue Card"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Cards() {
   const { orgCurrency } = useAuth();
   const currency = orgCurrency ?? "GHS";
 
-  const [activeTab,  setActiveTab]  = useState("virtual");
-  const [selectedId, setSelectedId] = useState(null);
+  const [activeTab,    setActiveTab]    = useState("virtual");
+  const [selectedId,   setSelectedId]   = useState(null);
+  const [showIssueModal, setShowIssueModal] = useState(false);
 
   const { data: allCards = [], isLoading } = useCards();
 
@@ -264,6 +412,9 @@ export default function Cards() {
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-6">
+      {showIssueModal && (
+        <IssueCardModal onClose={() => setShowIssueModal(false)} currency={currency} />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -272,7 +423,10 @@ export default function Cards() {
             {isLoading ? "Loading…" : `${allCards.length} card${allCards.length !== 1 ? "s" : ""} · ${fmt(totalSpend, currency)} total spend${frozenCount > 0 ? ` · ${frozenCount} frozen` : ""}`}
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600">
+        <button
+          onClick={() => setShowIssueModal(true)}
+          className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600"
+        >
           <Plus size={15} />
           Issue Card
         </button>

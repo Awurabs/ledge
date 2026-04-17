@@ -1,10 +1,11 @@
 import { useState } from "react";
 import {
   Plus, CheckCircle, AlertCircle, Clock, Building2,
-  ChevronDown, Calendar, Mail,
+  ChevronDown, Calendar, Mail, X,
 } from "lucide-react";
 import {
   useBills, useBillInbox, useApproveBill, useMarkBillPaid,
+  useCreateBill, useBillVendors, useCreateBillVendor,
 } from "../hooks/useBills";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
@@ -67,12 +68,203 @@ function InboxItem({ item }) {
   );
 }
 
+// ── Add Bill Modal ─────────────────────────────────────────────────────────────
+function AddBillModal({ onClose, currency }) {
+  const { data: vendors = [] } = useBillVendors();
+  const createBillMut   = useCreateBill();
+  const createVendorMut = useCreateBillVendor();
+
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm] = useState({
+    vendorId: "",
+    newVendorName: "",
+    billNumber: "",
+    billDate: today,
+    dueDate: "",
+    amount: "",
+    description: "",
+  });
+  const [creatingVendor, setCreatingVendor] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    let vendorId = form.vendorId;
+
+    // Create vendor inline if needed
+    if (creatingVendor && form.newVendorName.trim()) {
+      const v = await createVendorMut.mutateAsync({ name: form.newVendorName.trim() });
+      vendorId = v.id;
+    }
+
+    if (!vendorId) return;
+
+    createBillMut.mutate(
+      {
+        vendor_id:   vendorId,
+        bill_number: form.billNumber || null,
+        bill_date:   form.billDate,
+        due_date:    form.dueDate || null,
+        amount:      Math.round(parseFloat(form.amount || "0") * 100),
+        description: form.description || null,
+        status:      "pending",
+      },
+      { onSuccess: () => onClose() }
+    );
+  };
+
+  const isBusy = createBillMut.isPending || createVendorMut.isPending;
+  const currencySymbol = currency === "USD" ? "$" : currency === "GBP" ? "£" : "₵";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-md p-6 relative">
+        <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+          <X size={18} />
+        </button>
+        <h2 className="text-base font-semibold text-gray-900 mb-5">Add Bill</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Vendor */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Vendor <span className="text-red-400">*</span>
+            </label>
+            {creatingVendor ? (
+              <div className="flex gap-2">
+                <input
+                  required
+                  type="text"
+                  className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                  placeholder="Vendor name"
+                  value={form.newVendorName}
+                  onChange={(e) => setForm((f) => ({ ...f, newVendorName: e.target.value }))}
+                />
+                <button
+                  type="button"
+                  onClick={() => setCreatingVendor(false)}
+                  className="text-xs text-gray-500 hover:text-gray-700 px-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  required
+                  className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                  value={form.vendorId}
+                  onChange={(e) => setForm((f) => ({ ...f, vendorId: e.target.value }))}
+                >
+                  <option value="">Select vendor…</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setCreatingVendor(true)}
+                  className="text-xs text-green-600 hover:text-green-700 font-medium whitespace-nowrap"
+                >
+                  + New
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Bill number */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Bill Number</label>
+            <input
+              type="text"
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              placeholder="e.g. INV-2026-042"
+              value={form.billNumber}
+              onChange={(e) => setForm((f) => ({ ...f, billNumber: e.target.value }))}
+            />
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Bill Date</label>
+              <input
+                type="date"
+                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                value={form.billDate}
+                onChange={(e) => setForm((f) => ({ ...f, billDate: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <input
+                type="date"
+                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+                value={form.dueDate}
+                onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Amount <span className="text-red-400">*</span>
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">
+                {currencySymbol}
+              </span>
+              <input
+                required
+                type="number"
+                min="0"
+                step="0.01"
+                className="w-full border border-gray-200 rounded-md pl-7 pr-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-green-300"
+                placeholder="0.00"
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <textarea
+              rows={2}
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
+              placeholder="Optional notes…"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={isBusy}
+              className="flex-1 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-md transition-colors disabled:opacity-50"
+            >
+              {isBusy ? "Creating…" : "Create Bill"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-gray-200 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-md transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Bills() {
   const { orgCurrency } = useAuth();
   const currency = orgCurrency ?? "GHS";
 
-  const [activeTab, setActiveTab] = useState("all");
+  const [activeTab,    setActiveTab]   = useState("all");
+  const [showAddModal, setShowAddModal] = useState(false);
 
   const queryFilters = activeTab !== "all" ? { status: activeTab } : {};
   if (activeTab === "overdue") queryFilters.overdue = true;
@@ -100,13 +292,19 @@ export default function Bills() {
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-6">
+      {showAddModal && (
+        <AddBillModal onClose={() => setShowAddModal(false)} currency={currency} />
+      )}
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bills & Payables</h1>
           <p className="text-sm text-gray-500 mt-0.5">Manage vendor bills and payment schedules</p>
         </div>
-        <button className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600">
+        <button
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600"
+        >
           <Plus size={15} />
           Add Bill
         </button>
