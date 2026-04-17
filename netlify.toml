@@ -3,7 +3,9 @@
   publish   = "dist"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION          = "20"
+  VITE_SUPABASE_URL     = "https://vykrsscnmwseiqddxykp.supabase.co"
+  VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ5a3Jzc2NubXdzZWlxZGR4eWtwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzNjkzNjYsImV4cCI6MjA5MTk0NTM2Nn0.9zSODS_Qxq9P2X5pPfrIuIPNtU2lrbS9nugq4OKpR0I"
 
 [[redirects]]
   from   = "/*"
