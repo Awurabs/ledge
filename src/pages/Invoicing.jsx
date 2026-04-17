@@ -6,10 +6,11 @@ import {
   Smartphone, ChevronDown, Search, User, ArrowLeft,
 } from "lucide-react";
 import {
-  useInvoices, useContacts, useCreateInvoice, useUpdateInvoice,
+  useInvoices, useCreateInvoice, useUpdateInvoice,
   useMarkInvoiceSent, useRecordInvoicePayment, useVoidInvoice,
-  useDeleteInvoice, useCreateContact,
+  useDeleteInvoice,
 } from "../hooks/useInvoices";
+import { useContacts, useCreateContact } from "../hooks/useContacts";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -206,7 +207,10 @@ function AddContactModal({ onClose, onCreated }) {
     e.preventDefault();
     createMut.mutate(
       { ...form, type: "customer" },
-      { onSuccess: (contact) => { onCreated(contact); onClose(); } }
+      {
+        onSuccess: (contact) => { onCreated(contact); onClose(); },
+        onError:   () => { /* error shown inline below */ },
+      }
     );
   };
 
@@ -226,6 +230,12 @@ function AddContactModal({ onClose, onCreated }) {
           </div>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
+          {createMut.error && (
+            <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2.5">
+              <AlertCircle size={13} className="shrink-0" />
+              {createMut.error.message ?? "Failed to save. Please try again."}
+            </div>
+          )}
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">Name <span className="text-red-400">*</span></label>
             <input required value={form.name} onChange={(e) => upd("name", e.target.value)}

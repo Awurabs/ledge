@@ -19,6 +19,7 @@ import BalanceSheet   from "./pages/BalanceSheet";
 import Adjust         from "./pages/Adjust";
 import MonthEndClose  from "./pages/MonthEndClose";
 import ChartOfAccounts from "./pages/ChartOfAccounts";
+import Customers      from "./pages/Customers";
 import Invoicing      from "./pages/Invoicing";
 import Bills          from "./pages/Bills";
 import Reimbursements from "./pages/Reimbursements";
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="/adjust"            element={<Adjust />} />
             <Route path="/month-end-close"   element={<MonthEndClose />} />
             <Route path="/chart-of-accounts" element={<ChartOfAccounts />} />
+            <Route path="/customers"         element={<Customers />} />
             <Route path="/invoicing"         element={<Invoicing />} />
             <Route path="/bills"             element={<Bills />} />
             <Route path="/reimbursements"    element={<Reimbursements />} />

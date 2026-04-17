@@ -2,74 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
-// ── Contacts (customers) ──────────────────────────────────────────────────────
+// Re-export contact hooks so callers that import from useInvoices still work
+export { useContacts, useCreateContact, useUpdateContact } from "./useContacts";
 
-export function useContacts(filters = {}) {
-  const { orgId } = useAuth();
-  return useQuery({
-    queryKey: ["contacts", orgId, filters],
-    enabled: !!orgId,
-    queryFn: async () => {
-      let q = supabase
-        .from("contacts")
-        .select("*")
-        .eq("organization_id", orgId)
-        .eq("is_active", true)
-        .is("deleted_at", null)
-        .order("name");
-      if (filters.search) q = q.ilike("name", `%${filters.search}%`);
-      if (filters.type)   q = q.or(`type.eq.${filters.type},type.eq.both`);
-      const { data, error } = await q;
-      if (error) throw error;
-      return data;
-    },
-  });
-}
-
-// Keep backwards-compat alias used by existing Invoicing page
-export const useClients = useContacts;
-
-export function useCreateContact() {
-  const { orgId, user } = useAuth();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (values) => {
-      const { data, error } = await supabase
-        .from("contacts")
-        .insert({
-          ...values,
-          organization_id: orgId,
-          created_by: user?.id,
-          is_active: true,
-          type: values.type ?? "customer",
-        })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["contacts", orgId] }),
-  });
-}
-
-export function useUpdateContact() {
-  const { orgId } = useAuth();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...values }) => {
-      const { data, error } = await supabase
-        .from("contacts")
-        .update(values)
-        .eq("id", id)
-        .eq("organization_id", orgId)
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["contacts", orgId] }),
-  });
-}
+// Keep backwards-compat alias
+export { useContacts as useClients } from "./useContacts";
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
