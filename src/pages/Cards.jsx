@@ -1,371 +1,339 @@
-import { useState } from 'react';
+import { useState } from "react";
 import {
-  Plus,
-  CreditCard,
-  X,
-  Snowflake,
-  Eye,
-  AlertTriangle,
-  Sliders,
-  Trash2,
-} from 'lucide-react';
+  Plus, CreditCard, Snowflake, Eye, AlertTriangle, Sliders,
+} from "lucide-react";
+import {
+  useCards, useCardTransactions, useFreezeCard, useUnfreezeCard,
+} from "../hooks/useCards";
+import { useAuth } from "../context/AuthContext";
+import { fmt, fmtDate } from "../lib/fmt";
 
-// ── Virtual cards data ────────────────────────────────────────────────────────
-const virtualCards = [
-  {
-    id: 'vc-1',
-    name: 'Kofi Mensah',
-    lastFour: '4821',
-    expiry: '09/27',
-    spent: 8240,
-    limit: 15000,
-    type: 'virtual',
-    recentTx: [
-      { date: 'Mar 28', merchant: 'Stripe Inc',       amount: '$2,400' },
-      { date: 'Mar 26', merchant: 'AWS',               amount: '$3,150' },
-      { date: 'Mar 24', merchant: 'Figma',             amount: '$840'   },
-      { date: 'Mar 21', merchant: 'Linear',            amount: '$420'   },
-      { date: 'Mar 18', merchant: 'Notion',            amount: '$96'    },
-    ],
-  },
-  {
-    id: 'vc-2',
-    name: 'Ama Darko',
-    lastFour: '7392',
-    expiry: '03/28',
-    spent: 3890,
-    limit: 10000,
-    type: 'virtual',
-    recentTx: [
-      { date: 'Mar 27', merchant: 'Delta Airlines',   amount: '$1,890' },
-      { date: 'Mar 25', merchant: 'Marriott Hotels',  amount: '$1,200' },
-      { date: 'Mar 20', merchant: 'Uber',             amount: '$54'    },
-      { date: 'Mar 17', merchant: 'Bolt',             amount: '$38'    },
-      { date: 'Mar 14', merchant: 'Lyft',             amount: '$29'    },
-    ],
-  },
-  {
-    id: 'vc-3',
-    name: 'James Osei',
-    lastFour: '2947',
-    expiry: '11/26',
-    spent: 12100,
-    limit: 12000,
-    overLimit: true,
-    type: 'virtual',
-    recentTx: [
-      { date: 'Mar 27', merchant: 'WeWork',           amount: '$4,200' },
-      { date: 'Mar 22', merchant: 'Regus',            amount: '$3,800' },
-      { date: 'Mar 18', merchant: 'WeWork',           amount: '$2,100' },
-      { date: 'Mar 12', merchant: 'Industrious',      amount: '$1,600' },
-      { date: 'Mar 08', merchant: 'Workspace One',    amount: '$400'   },
-    ],
-  },
-];
-
-// ── Physical cards data ───────────────────────────────────────────────────────
-const physicalCards = [
-  { id: 'pc-1', name: 'Nana Boateng',   lastFour: '6234', status: 'Active',  limit: 20000, spent: 14230, type: 'physical',
-    recentTx: [
-      { date: 'Mar 26', merchant: 'AWS',            amount: '$3,150' },
-      { date: 'Mar 23', merchant: 'Salesforce',     amount: '$4,800' },
-      { date: 'Mar 20', merchant: 'HubSpot',        amount: '$2,100' },
-      { date: 'Mar 16', merchant: 'Zoom',           amount: '$420'   },
-      { date: 'Mar 12', merchant: 'Slack',          amount: '$340'   },
-    ],
-  },
-  { id: 'pc-2', name: 'Efua Asante',    lastFour: '8821', status: 'Active',  limit: 8000,  spent: 2140,  type: 'physical',
-    recentTx: [
-      { date: 'Mar 26', merchant: 'Uber',           amount: '$87'    },
-      { date: 'Mar 24', merchant: 'Lyft',           amount: '$45'    },
-      { date: 'Mar 21', merchant: 'Bolt',           amount: '$62'    },
-      { date: 'Mar 18', merchant: 'Grab',           amount: '$38'    },
-      { date: 'Mar 15', merchant: 'Taxi',           amount: '$24'    },
-    ],
-  },
-  { id: 'pc-3', name: 'Kweku Adjei',    lastFour: '3398', status: 'Frozen',  limit: 15000, spent: 0,     type: 'physical',
-    recentTx: [
-      { date: 'Mar 10', merchant: 'Marriott Hotels',amount: '$2,340' },
-      { date: 'Mar 08', merchant: 'Delta Airlines', amount: '$1,890' },
-      { date: 'Mar 05', merchant: 'Hilton',         amount: '$980'   },
-      { date: 'Mar 02', merchant: 'United Airlines',amount: '$760'   },
-      { date: 'Feb 28', merchant: 'Enterprise',     amount: '$430'   },
-    ],
-  },
-  { id: 'pc-4', name: 'Adwoa Frimpong', lastFour: '5512', status: 'Active',  limit: 10000, spent: 6730,  type: 'physical',
-    recentTx: [
-      { date: 'Mar 25', merchant: 'Google Workspace',amount: '$1,200' },
-      { date: 'Mar 22', merchant: 'Canva',           amount: '$540'   },
-      { date: 'Mar 19', merchant: 'Adobe',           amount: '$860'   },
-      { date: 'Mar 15', merchant: 'Miro',            amount: '$480'   },
-      { date: 'Mar 11', merchant: 'Loom',            amount: '$220'   },
-    ],
-  },
-  { id: 'pc-5', name: 'Yaw Amponsah',   lastFour: '9043', status: 'Active',  limit: 5000,  spent: 890,   type: 'physical',
-    recentTx: [
-      { date: 'Mar 24', merchant: 'Office Depot',   amount: '$430'   },
-      { date: 'Mar 20', merchant: 'Staples',        amount: '$180'   },
-      { date: 'Mar 16', merchant: 'Amazon',         amount: '$145'   },
-      { date: 'Mar 11', merchant: 'IKEA',           amount: '$95'    },
-      { date: 'Mar 07', merchant: 'Best Buy',       amount: '$40'    },
-    ],
-  },
-];
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function fmt(n) {
-  return '$' + n.toLocaleString();
+// ── Skeleton ───────────────────────────────────────────────────────────────────
+function Skeleton({ className = "" }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
 }
 
-function SpendBar({ spent, limit, overLimit }) {
-  const pct = Math.min((spent / limit) * 100, 100);
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function getInitials(name = "") {
+  const parts = name.trim().split(/\s+/);
+  return parts.length >= 2
+    ? (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    : name.slice(0, 2).toUpperCase();
+}
+
+function formatExpiry(dateStr) {
+  if (!dateStr) return "—";
+  const d = new Date(dateStr);
+  if (isNaN(d)) return dateStr;
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getFullYear()).slice(-2)}`;
+}
+
+const CARD_GRADIENTS = [
+  "from-gray-900 to-gray-700",
+  "from-green-900 to-green-700",
+  "from-blue-900 to-blue-700",
+  "from-purple-900 to-purple-700",
+  "from-rose-900 to-rose-700",
+  "from-indigo-900 to-indigo-700",
+];
+
+// ── Card Visual Component ──────────────────────────────────────────────────────
+function CardVisual({ card, currency, isSelected, onSelect }) {
+  const name     = card.organization_members?.profiles?.full_name ?? card.nickname ?? "Unknown";
+  const initials = getInitials(name);
+  const isFrozen = card.status === "frozen";
+  const spend    = card.current_spend ?? 0;
+  const limit    = card.spend_limit ?? 0;
+  const overLimit = limit > 0 && spend > limit;
+  const gradient = CARD_GRADIENTS[name.charCodeAt(0) % CARD_GRADIENTS.length];
+
   return (
-    <div className="mt-3">
-      <div className="flex justify-between text-xs text-gray-300 mb-1.5 tabular-nums">
-        <span>Spent {fmt(spent)}</span>
-        <span>of {fmt(limit)} limit</span>
+    <div
+      onClick={onSelect}
+      className={`bg-gradient-to-br ${gradient} rounded-xl p-5 text-white relative overflow-hidden cursor-pointer transition-all ${
+        isSelected ? "ring-2 ring-offset-2 ring-green-400 shadow-lg scale-[1.01]" : "hover:shadow-md hover:scale-[1.005]"
+      } ${isFrozen ? "opacity-60" : ""}`}
+    >
+      <div className="absolute -top-6 -right-6 w-24 h-24 rounded-full bg-white/5" />
+      <div className="absolute -bottom-8 -right-2 w-32 h-32 rounded-full bg-white/5" />
+
+      {/* Top */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-xs font-bold">
+            {initials}
+          </div>
+          <div>
+            <p className="text-xs font-medium opacity-80 truncate max-w-[110px]">{name}</p>
+            <p className="text-[10px] opacity-50 capitalize">{card.type ?? "virtual"}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {isFrozen && (
+            <span className="flex items-center gap-1 text-[10px] bg-blue-400/30 border border-blue-300/40 rounded-full px-1.5 py-0.5">
+              <Snowflake size={8} /> Frozen
+            </span>
+          )}
+          {overLimit && !isFrozen && <AlertTriangle size={14} className="text-amber-400" />}
+          <CreditCard size={15} className="opacity-50" />
+        </div>
       </div>
-      <div className="h-1.5 rounded-full bg-white/20">
-        <div
-          className={`h-1.5 rounded-full transition-all ${overLimit ? 'bg-red-400' : 'bg-green-400'}`}
-          style={{ width: `${pct}%` }}
-        />
+
+      {/* Card number */}
+      <p className="text-sm font-mono tracking-[0.18em] mb-4 opacity-90">
+        •••• •••• •••• {card.last_four ?? "0000"}
+      </p>
+
+      {/* Bottom */}
+      <div className="flex items-end justify-between">
+        <div>
+          <p className="text-[10px] opacity-50 uppercase tracking-wide">Expires</p>
+          <p className="text-xs font-medium">{formatExpiry(card.expiry_date)}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px] opacity-50 uppercase tracking-wide">Spent</p>
+          <p className={`text-xs font-bold ${overLimit ? "text-amber-300" : ""}`}>
+            {fmt(spend, currency)}
+          </p>
+          {limit > 0 && (
+            <p className="text-[10px] opacity-40">of {fmt(limit, currency)}</p>
+          )}
+        </div>
       </div>
-      {overLimit && (
-        <p className="mt-1 text-xs text-red-300 flex items-center gap-1">
-          <AlertTriangle size={10} /> Over limit
-        </p>
+
+      {/* Spend bar */}
+      {limit > 0 && (
+        <div className="mt-3 w-full bg-white/20 rounded-full h-1">
+          <div
+            className={`h-1 rounded-full transition-all ${overLimit ? "bg-amber-400" : "bg-green-400"}`}
+            style={{ width: `${Math.min((spend / limit) * 100, 100)}%` }}
+          />
+        </div>
       )}
     </div>
   );
 }
 
-function VirtualCardTile({ card, onSelect }) {
+// ── Card Detail Panel ──────────────────────────────────────────────────────────
+function CardDetail({ card, currency }) {
+  const { data: txns = [], isLoading: txLoading } = useCardTransactions(card?.id, { limit: 5 });
+  const freezeMut   = useFreezeCard();
+  const unfreezeMut = useUnfreezeCard();
+
+  if (!card) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm h-64 flex items-center justify-center">
+        <div className="text-center text-gray-400">
+          <CreditCard size={32} className="mx-auto mb-2 opacity-30" />
+          <p className="text-sm font-medium">Select a card to view details</p>
+        </div>
+      </div>
+    );
+  }
+
+  const name     = card.organization_members?.profiles?.full_name ?? card.nickname ?? "—";
+  const role     = card.organization_members?.profiles?.job_title ?? "—";
+  const dept     = card.departments?.name;
+  const spend    = card.current_spend ?? 0;
+  const limit    = card.spend_limit ?? 0;
+  const isFrozen = card.status === "frozen";
+  const pct      = limit > 0 ? Math.min(Math.round((spend / limit) * 100), 100) : 0;
+  const isBusy   = freezeMut.isPending || unfreezeMut.isPending;
+
   return (
-    <div
-      className="cursor-pointer group"
-      onClick={() => onSelect(card)}
-    >
-      {/* Card face */}
-      <div className="relative rounded-xl bg-gradient-to-br from-gray-800 to-gray-900 p-5 text-white shadow-lg group-hover:shadow-xl transition-shadow">
-        {/* Top row */}
-        <div className="flex items-center justify-between mb-6">
-          <span className="text-base font-bold tracking-widest text-white">Ledge</span>
-          <CreditCard size={22} className="text-amber-400" />
-        </div>
-        {/* Cardholder name */}
-        <p className="text-lg font-semibold tracking-wide mb-5">{card.name}</p>
-        {/* Bottom row */}
-        <div className="flex items-end justify-between">
-          <span className="text-sm font-mono tracking-widest text-gray-300">
-            •••• •••• •••• {card.lastFour}
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+      {/* Header */}
+      <div className="p-5 border-b border-gray-100">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">{name}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {role}{dept ? ` · ${dept}` : ""}
+            </p>
+            <p className="text-xs text-gray-400 font-mono mt-0.5">
+              •••• •••• •••• {card.last_four ?? "0000"} · Exp {formatExpiry(card.expiry_date)}
+            </p>
+          </div>
+          <span className={`text-xs font-semibold rounded-full px-2.5 py-0.5 capitalize ${
+            isFrozen ? "bg-blue-100 text-blue-700" : "bg-green-100 text-green-700"
+          }`}>
+            {card.status ?? "active"}
           </span>
-          <span className="text-xs text-gray-400">{card.expiry}</span>
         </div>
-        <SpendBar spent={card.spent} limit={card.limit} overLimit={card.overLimit} />
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Spend progress */}
+        {limit > 0 && (
+          <section>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-xs font-semibold text-gray-600">Monthly Spend</p>
+              <p className="text-xs text-gray-400">{pct}% of limit</p>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2 mb-1.5">
+              <div
+                className={`h-2 rounded-full transition-all ${pct >= 100 ? "bg-red-500" : pct >= 80 ? "bg-amber-500" : "bg-green-500"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>{fmt(spend, currency)} spent</span>
+              <span>{fmt(limit, currency)} limit</span>
+            </div>
+          </section>
+        )}
+
+        {/* Recent transactions */}
+        <section>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Recent Transactions</h3>
+          {txLoading ? (
+            <div className="space-y-2">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+            </div>
+          ) : txns.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No transactions yet</p>
+          ) : (
+            <div className="divide-y divide-gray-50">
+              {txns.map((tx) => (
+                <div key={tx.id} className="flex items-center justify-between py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{tx.merchant_name ?? "—"}</p>
+                    <p className="text-xs text-gray-400">{fmtDate(tx.txn_date)}</p>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-900 tabular-nums ml-4 shrink-0">
+                    {fmt(tx.amount, currency)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Actions */}
+        <section>
+          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Actions</h3>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => isFrozen
+                ? unfreezeMut.mutate({ id: card.id })
+                : freezeMut.mutate({ id: card.id })
+              }
+              disabled={isBusy}
+              className="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+            >
+              <Snowflake size={14} />
+              {isFrozen ? "Unfreeze" : "Freeze"}
+            </button>
+            <button className="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Eye size={14} />
+              View Number
+            </button>
+            <button className="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50">
+              <Sliders size={14} />
+              Set Limit
+            </button>
+            <button className="flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100">
+              Cancel Card
+            </button>
+          </div>
+        </section>
       </div>
     </div>
   );
 }
 
-// ── Drawer ────────────────────────────────────────────────────────────────────
-function CardDrawer({ card, onClose }) {
-  if (!card) return null;
-
-  return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/20 z-30"
-        onClick={onClose}
-      />
-      {/* Drawer */}
-      <div className="fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-40 flex flex-col overflow-y-auto">
-        {/* Drawer header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-              {card.type === 'virtual' ? 'Virtual Card' : 'Physical Card'}
-            </p>
-            <h3 className="text-lg font-bold text-gray-900 mt-0.5">{card.name}</h3>
-            <p className="text-sm text-gray-500 tabular-nums font-mono">•••• •••• •••• {card.lastFour}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-full p-1.5 hover:bg-gray-100 transition-colors text-gray-500"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* Spend summary */}
-        {card.limit && (
-          <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-500">Spent MTD</span>
-              <span className="tabular-nums font-semibold text-gray-900">{fmt(card.spent)}</span>
-            </div>
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-gray-500">Limit</span>
-              <span className="tabular-nums font-semibold text-gray-900">{fmt(card.limit)}</span>
-            </div>
-            <div className="h-2 rounded-full bg-gray-200 mt-2">
-              <div
-                className={`h-2 rounded-full ${(card.spent / card.limit) > 1 ? 'bg-red-500' : 'bg-green-500'}`}
-                style={{ width: `${Math.min((card.spent / card.limit) * 100, 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Recent transactions */}
-        <div className="px-6 py-5 border-b border-gray-200 flex-1">
-          <h4 className="text-sm font-semibold text-gray-700 mb-3">Recent Transactions</h4>
-          <div className="flex flex-col gap-2">
-            {card.recentTx.map((tx, i) => (
-              <div key={i} className="flex items-center justify-between py-1.5">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{tx.merchant}</p>
-                  <p className="text-xs text-gray-400">{tx.date}</p>
-                </div>
-                <span className="tabular-nums text-sm font-semibold text-gray-800">{tx.amount}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Action buttons */}
-        <div className="px-6 py-5 flex flex-col gap-2">
-          <button className="flex items-center gap-2 w-full justify-center rounded-md border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            <Snowflake size={15} className="text-blue-400" />
-            {card.status === 'Frozen' ? 'Unfreeze Card' : 'Freeze Card'}
-          </button>
-          <button className="flex items-center gap-2 w-full justify-center rounded-md border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-            <Sliders size={15} className="text-gray-500" />
-            Adjust Limit
-          </button>
-          <button className="flex items-center gap-2 w-full justify-center rounded-md border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-medium text-red-600 hover:bg-red-100 transition-colors">
-            <Trash2 size={15} />
-            Cancel Card
-          </button>
-        </div>
-      </div>
-    </>
-  );
-}
-
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Cards() {
-  const [selectedCard, setSelectedCard] = useState(null);
+  const { orgCurrency } = useAuth();
+  const currency = orgCurrency ?? "GHS";
 
-  const allCards = [...virtualCards, ...physicalCards];
+  const [activeTab,  setActiveTab]  = useState("virtual");
+  const [selectedId, setSelectedId] = useState(null);
+
+  const { data: allCards = [], isLoading } = useCards();
+
+  const virtualCards  = allCards.filter((c) => c.type === "virtual");
+  const physicalCards = allCards.filter((c) => c.type === "physical");
+  const displayCards  = activeTab === "virtual" ? virtualCards : physicalCards;
+
+  const activeCardId  = selectedId ?? displayCards[0]?.id ?? null;
+  const selectedCard  = allCards.find((c) => c.id === activeCardId) ?? null;
+
+  const totalSpend  = allCards.reduce((s, c) => s + (c.current_spend ?? 0), 0);
+  const frozenCount = allCards.filter((c) => c.status === "frozen").length;
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] p-6 font-sans">
-
-      {/* ── Header ── */}
+    <div className="min-h-screen bg-[#F7F7F8] p-6">
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cards</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage virtual and physical cards</p>
+          <p className="text-sm text-gray-500 mt-0.5">
+            {isLoading ? "Loading…" : `${allCards.length} card${allCards.length !== 1 ? "s" : ""} · ${fmt(totalSpend, currency)} total spend${frozenCount > 0 ? ` · ${frozenCount} frozen` : ""}`}
+          </p>
         </div>
-        <button className="flex items-center gap-2 rounded-md bg-green-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-600 transition-colors">
+        <button className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600">
           <Plus size={15} />
-          Issue New Card
+          Issue Card
         </button>
       </div>
 
-      {/* ── Stats row ── */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
+      {/* Type tabs */}
+      <div className="flex gap-1 bg-white border border-gray-200 rounded-xl p-1 mb-5 w-fit shadow-sm">
         {[
-          { label: 'Active Cards',     value: '12',        sub: 'across all cardholders' },
-          { label: 'Total Spend MTD',  value: '$284,510',  sub: 'all cards combined',    mono: true },
-          { label: 'Avg Transaction',  value: '$847',      sub: 'per transaction',        mono: true },
-          { label: 'Flagged',          value: '2',         sub: 'require review',         warn: true },
-        ].map(({ label, value, sub, mono, warn }) => (
-          <div key={label} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${warn ? 'text-red-500' : 'text-gray-900'} ${mono ? 'tabular-nums' : ''}`}>
-              {value}
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
-          </div>
+          { key: "virtual",  label: "Virtual",  count: virtualCards.length  },
+          { key: "physical", label: "Physical", count: physicalCards.length },
+        ].map((t) => (
+          <button
+            key={t.key}
+            onClick={() => { setActiveTab(t.key); setSelectedId(null); }}
+            className={`px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              activeTab === t.key ? "bg-gray-900 text-white" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className={`ml-1.5 text-xs ${activeTab === t.key ? "text-white/60" : "text-gray-400"}`}>
+                ({t.count})
+              </span>
+            )}
+          </button>
         ))}
       </div>
 
-      {/* ── Virtual Cards ── */}
-      <section className="mb-8">
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Virtual Cards</h2>
-        <div className="grid grid-cols-3 gap-5">
-          {virtualCards.map((card) => (
-            <VirtualCardTile key={card.id} card={card} onSelect={setSelectedCard} />
-          ))}
-        </div>
-      </section>
-
-      {/* ── Physical Cards ── */}
-      <section>
-        <h2 className="text-base font-semibold text-gray-900 mb-4">Physical Cards</h2>
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wide border-b border-gray-200">
-                <th className="text-left px-4 py-3">Cardholder</th>
-                <th className="text-left px-4 py-3">Last 4</th>
-                <th className="text-left px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3 tabular-nums">Limit</th>
-                <th className="text-right px-4 py-3 tabular-nums">Spent MTD</th>
-                <th className="text-left px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {physicalCards.map((card, i) => (
-                <tr
+      {/* Two-column layout */}
+      <div className="flex gap-5 items-start">
+        {/* Left: Card grid */}
+        <div className="flex-1 min-w-0">
+          {isLoading ? (
+            <div className="grid grid-cols-2 gap-4">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-48 rounded-xl" />)}
+            </div>
+          ) : displayCards.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center text-gray-400">
+              <CreditCard size={32} className="mx-auto mb-3 opacity-30" />
+              <p className="font-medium">No {activeTab} cards yet</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              {displayCards.map((card) => (
+                <CardVisual
                   key={card.id}
-                  className={`border-t border-gray-100 ${i % 2 === 1 ? 'bg-gray-50/50' : ''} hover:bg-gray-50 transition-colors`}
-                >
-                  <td className="px-4 py-3 font-medium text-gray-900">{card.name}</td>
-                  <td className="px-4 py-3 font-mono text-gray-500 tabular-nums">•••• {card.lastFour}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        card.status === 'Active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-blue-100 text-blue-700'
-                      }`}
-                    >
-                      {card.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-700 tabular-nums">{fmt(card.limit)}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums text-gray-900">{fmt(card.spent)}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        className="flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
-                        onClick={() => setSelectedCard(card)}
-                      >
-                        <Snowflake size={11} className="text-blue-400" />
-                        {card.status === 'Frozen' ? 'Unfreeze' : 'Freeze'}
-                      </button>
-                      <button
-                        className="flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium border border-gray-200 text-gray-600 hover:bg-gray-100 transition-colors"
-                        onClick={() => setSelectedCard(card)}
-                      >
-                        <Eye size={11} />
-                        View
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  card={card}
+                  currency={currency}
+                  isSelected={activeCardId === card.id}
+                  onSelect={() => setSelectedId(card.id)}
+                />
               ))}
-            </tbody>
-          </table>
+            </div>
+          )}
         </div>
-      </section>
 
-      {/* ── Slide-in drawer ── */}
-      <CardDrawer card={selectedCard} onClose={() => setSelectedCard(null)} />
+        {/* Right: Detail panel */}
+        <div className="w-[320px] flex-shrink-0">
+          <CardDetail card={selectedCard} currency={currency} />
+        </div>
+      </div>
     </div>
   );
 }

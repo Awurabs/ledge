@@ -1,71 +1,41 @@
 import { useState } from "react";
 import {
-  Plus,
-  CreditCard,
-  CheckCircle,
-  AlertCircle,
-  Clock,
-  Building2,
-  Mail,
-  ChevronDown,
-  Eye,
-  Calendar,
+  Plus, CheckCircle, AlertCircle, Clock, Building2,
+  ChevronDown, Calendar, Mail,
 } from "lucide-react";
+import {
+  useBills, useBillInbox, useApproveBill, useMarkBillPaid,
+} from "../hooks/useBills";
+import { useAuth } from "../context/AuthContext";
+import { fmt, fmtDate } from "../lib/fmt";
 
-const inboxItems = [
-  { id: 1, vendor: "MTN Business", amount: "4200", date: "Mar 31, 2026", confidence: "High" },
-  { id: 2, vendor: "Electricity Company of Ghana", amount: "1840", date: "Mar 31, 2026", confidence: "High" },
-  { id: 3, vendor: "Zain Fiber", amount: "980", date: "Mar 30, 2026", confidence: "Medium" },
-];
+// ── Skeleton ───────────────────────────────────────────────────────────────────
+function Skeleton({ className = "" }) {
+  return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
+}
 
-const bills = [
-  { id: 1, vendor: "MTN Business", billNo: "BILL-MTN-0847", amount: 4200, due: "Apr 5, 2026", status: "Pending", category: "Telecom", actions: ["Approve", "Schedule"] },
-  { id: 2, vendor: "Electricity Co. Ghana", billNo: "BILL-ECG-0291", amount: 1840, due: "Apr 3, 2026", status: "Pending", category: "Utilities", actions: ["Approve", "Schedule"] },
-  { id: 3, vendor: "WeWork Accra", billNo: "BILL-WW-0144", amount: 8400, due: "Apr 1, 2026", status: "Scheduled", category: "Facilities", actions: [] },
-  { id: 4, vendor: "Databank Software", billNo: "BILL-DB-0562", amount: 6800, due: "Apr 8, 2026", status: "Pending", category: "SaaS", actions: ["Approve", "Schedule"] },
-  { id: 5, vendor: "Enterprise Insurance", billNo: "BILL-EI-0089", amount: 12000, due: "Mar 31, 2026", status: "Overdue", category: "Insurance", actions: ["Pay Now"] },
-  { id: 6, vendor: "Accra Water Authority", billNo: "BILL-AWA-0441", amount: 520, due: "Apr 2, 2026", status: "Pending", category: "Utilities", actions: ["Approve", "Schedule"] },
-  { id: 7, vendor: "Regus Office Space", billNo: "BILL-RG-0203", amount: 3200, due: "Apr 10, 2026", status: "Pending", category: "Facilities", actions: ["Approve", "Schedule"] },
-  { id: 8, vendor: "AWS Cloud Services", billNo: "BILL-AWS-1092", amount: 9400, due: "Mar 28, 2026", status: "Paid", category: "Technology", actions: [] },
-  { id: 9, vendor: "Salesforce CRM", billNo: "BILL-SF-0338", amount: 5600, due: "Apr 15, 2026", status: "Pending", category: "SaaS", actions: ["Approve", "Schedule"] },
-  { id: 10, vendor: "DHL Logistics", billNo: "BILL-DHL-0765", amount: 2100, due: "Apr 6, 2026", status: "Pending", category: "Logistics", actions: ["Approve", "Schedule"] },
-  { id: 11, vendor: "Standard Chartered", billNo: "BILL-SC-0912", amount: 4500, due: "Apr 20, 2026", status: "Pending", category: "Finance", actions: ["Approve", "Schedule"] },
-  { id: 12, vendor: "Vodafone Business", billNo: "BILL-VF-0234", amount: 1650, due: "Mar 25, 2026", status: "Paid", category: "Telecom", actions: [] },
-  { id: 13, vendor: "Jumia Business", billNo: "BILL-JB-0447", amount: 890, due: "Apr 12, 2026", status: "Pending", category: "Office", actions: ["Approve", "Schedule"] },
-  { id: 14, vendor: "Google Workspace", billNo: "BILL-GW-0128", amount: 1200, due: "Mar 30, 2026", status: "Paid", category: "Technology", actions: [] },
-  { id: 15, vendor: "Acer Enterprise", billNo: "BILL-AC-0093", amount: 7800, due: "Apr 25, 2026", status: "Pending", category: "Equipment", actions: ["Approve", "Schedule"] },
-];
-
-const statusConfig = {
-  Pending: { bg: "bg-amber-100", text: "text-amber-700" },
-  Scheduled: { bg: "bg-blue-100", text: "text-blue-700" },
-  Paid: { bg: "bg-green-100", text: "text-green-700" },
-  Overdue: { bg: "bg-red-100", text: "text-red-700" },
+// ── Status config (lowercase DB values) ──────────────────────────────────────
+const STATUS_CONFIG = {
+  pending:   { bg: "bg-amber-100",  text: "text-amber-700",  label: "Pending"   },
+  scheduled: { bg: "bg-blue-100",   text: "text-blue-700",   label: "Scheduled" },
+  paid:      { bg: "bg-green-100",  text: "text-green-700",  label: "Paid"      },
+  overdue:   { bg: "bg-red-100",    text: "text-red-700",    label: "Overdue"   },
+  void:      { bg: "bg-gray-100",   text: "text-gray-500",   label: "Void"      },
 };
-
-const actionConfig = {
-  Approve: "bg-green-500 text-white hover:bg-green-600",
-  Schedule: "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50",
-  "Pay Now": "bg-red-500 text-white hover:bg-red-600",
-};
-
-const fmt = (n) => "$" + n.toLocaleString("en-US");
 
 function StatusPill({ status }) {
-  const cfg = statusConfig[status] || { bg: "bg-gray-100", text: "text-gray-600" };
+  const cfg = STATUS_CONFIG[status?.toLowerCase()] ?? { bg: "bg-gray-100", text: "text-gray-600", label: status ?? "—" };
   return (
     <span className={`rounded-full text-xs px-2.5 py-0.5 font-medium ${cfg.bg} ${cfg.text}`}>
-      {status}
+      {cfg.label}
     </span>
   );
 }
 
+// ── Bill Inbox Item ────────────────────────────────────────────────────────────
 function InboxItem({ item }) {
-  const [vendor, setVendor] = useState(item.vendor);
-  const [amount, setAmount] = useState(item.amount);
-  const [dismissed, setDismissed] = useState(false);
-
-  if (dismissed) return null;
+  const confidence = item.confidence ?? "Medium";
+  const confColor  = confidence === "High" ? "text-green-600 bg-green-50" : "text-amber-600 bg-amber-50";
 
   return (
     <div className="flex items-center gap-4 py-4 border-b border-gray-100 last:border-0">
@@ -73,42 +43,23 @@ function InboxItem({ item }) {
         <Mail size={18} className="text-gray-400" />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
-          <input
-            className="font-semibold text-sm text-gray-900 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-green-500 min-w-0"
-            value={vendor}
-            onChange={(e) => setVendor(e.target.value)}
-          />
-          <span
-            className={`rounded-full text-xs px-2 py-0.5 font-medium shrink-0 ${
-              item.confidence === "High"
-                ? "bg-green-100 text-green-700"
-                : "bg-amber-100 text-amber-700"
-            }`}
-          >
-            {item.confidence} confidence
+        <div className="flex items-center gap-2 mb-1">
+          <p className="font-semibold text-sm text-gray-900 truncate">
+            {item.vendor_name ?? item.extracted_vendor ?? "Unknown Vendor"}
+          </p>
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${confColor}`}>
+            {confidence}
           </span>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 text-sm text-gray-500">
-            <span>$</span>
-            <input
-              className="w-20 bg-transparent border-b border-dashed border-gray-300 focus:outline-none focus:border-green-500 text-sm text-gray-700"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </div>
-          <span className="text-sm text-gray-400">{item.date}</span>
-        </div>
+        <p className="text-xs text-gray-500">
+          {item.amount_raw ? `Detected: ${item.amount_raw}` : "Amount not detected"} · {fmtDate(item.created_at)}
+        </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <button className="bg-green-500 text-white rounded-md px-3 py-1.5 text-xs font-medium hover:bg-green-600 transition-colors">
-          Add to Bills
+      <div className="flex gap-2 shrink-0">
+        <button className="px-3 py-1.5 text-xs font-semibold bg-green-500 text-white rounded-lg hover:bg-green-600">
+          Create Bill
         </button>
-        <button
-          onClick={() => setDismissed(true)}
-          className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-        >
+        <button className="px-3 py-1.5 text-xs font-medium bg-white text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">
           Dismiss
         </button>
       </div>
@@ -116,193 +67,228 @@ function InboxItem({ item }) {
   );
 }
 
+// ── Main Page ──────────────────────────────────────────────────────────────────
 export default function Bills() {
-  const [activeTab, setActiveTab] = useState("All");
-  const tabs = ["All", "Pending", "Scheduled", "Paid", "Overdue"];
+  const { orgCurrency } = useAuth();
+  const currency = orgCurrency ?? "GHS";
 
-  const filtered =
-    activeTab === "All" ? bills : bills.filter((b) => b.status === activeTab);
+  const [activeTab, setActiveTab] = useState("all");
+
+  const queryFilters = activeTab !== "all" ? { status: activeTab } : {};
+  if (activeTab === "overdue") queryFilters.overdue = true;
+
+  const { data: bills = [],       isLoading }  = useBills(queryFilters);
+  const { data: inboxItems = [] }               = useBillInbox();
+  const approveMut  = useApproveBill();
+  const markPaidMut = useMarkBillPaid();
+
+  const allBills = useBills({}).data ?? bills;
+
+  // Summary stats
+  const pendingTotal  = bills.filter((b) => b.status === "pending").reduce((s, b) => s + (b.amount ?? 0), 0);
+  const overdueTotal  = bills.filter((b) => b.status === "overdue").reduce((s, b) => s + (b.amount ?? 0), 0);
+  const scheduledTotal = bills.filter((b) => b.status === "scheduled").reduce((s, b) => s + (b.amount ?? 0), 0);
+  const paidTotal     = bills.filter((b) => b.status === "paid").reduce((s, b) => s + (b.amount ?? 0), 0);
+
+  const tabs = ["all", "pending", "scheduled", "paid", "overdue"];
+
+  const handleApprove = (id) => approveMut.mutate({ id });
+  const handlePayNow  = (id) => markPaidMut.mutate({
+    id,
+    paymentDate: new Date().toISOString().slice(0, 10),
+  });
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bills</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Manage vendor bills and scheduled payments</p>
+          <h1 className="text-2xl font-bold text-gray-900">Bills & Payables</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manage vendor bills and payment schedules</p>
         </div>
-        <div className="flex gap-3">
-          <button className="bg-white text-gray-700 border border-gray-300 rounded-md px-4 py-2 hover:bg-gray-50 transition-colors font-medium text-sm flex items-center gap-2">
-            <CreditCard size={15} />
-            Pay Bills
-          </button>
-          <button className="flex items-center gap-2 bg-green-500 text-white rounded-md px-4 py-2 hover:bg-green-600 transition-colors font-medium text-sm">
-            <Plus size={15} />
-            Add Bill
-          </button>
-        </div>
+        <button className="flex items-center gap-2 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600">
+          <Plus size={15} />
+          Add Bill
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {[
+          { label: "Pending",   value: pendingTotal,   icon: Clock,        color: "text-amber-600",   bg: "bg-amber-50"   },
+          { label: "Overdue",   value: overdueTotal,   icon: AlertCircle,  color: "text-red-600",     bg: "bg-red-50"     },
+          { label: "Scheduled", value: scheduledTotal, icon: Calendar,     color: "text-blue-600",    bg: "bg-blue-50"    },
+          { label: "Paid MTD",  value: paidTotal,      icon: CheckCircle,  color: "text-green-600",   bg: "bg-green-50"   },
+        ].map((stat) => (
+          <div key={stat.label} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm text-gray-500">{stat.label}</p>
+              <div className={`${stat.bg} p-2 rounded-lg`}>
+                <stat.icon size={16} className={stat.color} />
+              </div>
+            </div>
+            {isLoading ? (
+              <Skeleton className="h-7 w-28" />
+            ) : (
+              <p className="text-xl font-bold text-gray-900">{fmt(stat.value, currency)}</p>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* Bill Inbox */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6 mb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center">
-            <Mail size={16} className="text-blue-500" />
+      {inboxItems.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-900">Bill Inbox</h2>
+            <span className="rounded-full bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5">
+              {inboxItems.length} new
+            </span>
           </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">Auto-Captured Bills</h2>
-          </div>
-          <span className="ml-auto text-xs bg-blue-100 text-blue-700 rounded-full px-2.5 py-0.5 font-medium">
-            3 new
-          </span>
-        </div>
-        <p className="text-sm text-gray-500 mb-4 ml-11">
-          3 bills captured from email in the last 24 hours
-        </p>
-        <div className="ml-0">
           {inboxItems.map((item) => (
             <InboxItem key={item.id} item={item} />
           ))}
         </div>
-      </div>
+      )}
 
       {/* Bills Table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+        {/* Header + tabs */}
         <div className="flex items-center justify-between px-6 pt-5 pb-0">
-          <h2 className="text-base font-semibold text-gray-900">All Bills</h2>
-          <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-md px-3 py-1.5">
-              <ChevronDown size={14} />
-              Filter
-            </button>
-          </div>
+          <h2 className="text-base font-semibold text-gray-900">Bills</h2>
+          <button className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-md px-3 py-1.5">
+            <ChevronDown size={14} /> Export
+          </button>
         </div>
 
-        {/* Filter Tabs */}
         <div className="flex border-b border-gray-200 px-6 mt-4">
           {tabs.map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`mr-5 pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`mr-5 pb-3 text-sm font-medium border-b-2 capitalize transition-colors ${
                 activeTab === tab
                   ? "border-green-500 text-green-600"
                   : "border-transparent text-gray-500 hover:text-gray-700"
               }`}
             >
-              {tab}
-              {tab !== "All" && (
-                <span className="ml-1.5 text-xs text-gray-400">
-                  ({bills.filter((b) => b.status === tab).length})
-                </span>
-              )}
+              {tab === "all" ? "All" : tab.charAt(0).toUpperCase() + tab.slice(1)}
             </button>
           ))}
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-6 py-3">
-                  Vendor
-                </th>
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Bill #
-                </th>
-                <th className="text-right text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Amount
-                </th>
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Due Date
-                </th>
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Status
-                </th>
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Category
-                </th>
-                <th className="text-left text-xs font-semibold text-gray-400 uppercase tracking-wide px-3 py-3">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((bill, i) => (
-                <tr
-                  key={bill.id}
-                  className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                    i % 2 === 0 ? "" : "bg-gray-50/30"
-                  }`}
-                >
-                  <td className="px-6 py-3.5">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-7 h-7 bg-gray-100 rounded-md flex items-center justify-center shrink-0">
-                        <Building2 size={13} className="text-gray-400" />
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">{bill.vendor}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <span className="text-sm text-gray-500 font-mono text-xs">{bill.billNo}</span>
-                  </td>
-                  <td className="px-3 py-3.5 text-right">
-                    <span className="text-sm font-semibold text-gray-900">{fmt(bill.amount)}</span>
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar size={13} className="text-gray-400" />
-                      <span
-                        className={`text-sm ${
-                          bill.status === "Overdue" ? "text-red-600 font-medium" : "text-gray-600"
-                        }`}
-                      >
-                        {bill.due}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <StatusPill status={bill.status} />
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2.5 py-1">
-                      {bill.category}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3.5">
-                    <div className="flex items-center gap-2">
-                      {bill.actions.map((action) => (
-                        <button
-                          key={action}
-                          className={`text-xs font-medium rounded-md px-2.5 py-1.5 transition-colors ${actionConfig[action]}`}
-                        >
-                          {action}
-                        </button>
-                      ))}
-                      <button className="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors">
-                        <Eye size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-          <p className="text-sm text-gray-400">
-            Showing {filtered.length} of {bills.length} bills
-          </p>
-          <div className="flex gap-2">
-            <button className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-200 rounded-md">
-              Previous
-            </button>
-            <button className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 border border-gray-200 rounded-md">
-              Next
-            </button>
+        {isLoading ? (
+          <div className="p-6 space-y-3">
+            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
+        ) : bills.length === 0 ? (
+          <div className="py-16 text-center text-gray-400">
+            <Building2 size={32} className="mx-auto mb-3 opacity-30" />
+            <p className="font-medium">No bills found</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {["Vendor", "Bill #", "Category", "Due Date", "Amount", "Status", "Actions"].map((h) => (
+                    <th
+                      key={h}
+                      className={`text-xs font-semibold text-gray-400 uppercase tracking-wide py-3 ${
+                        h === "Amount" ? "text-right px-3" : "text-left px-3 first:px-6"
+                      }`}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bills.map((bill, i) => {
+                  const vendor   = bill.bill_vendors;
+                  const status   = bill.status ?? "pending";
+                  const isPending  = status === "pending";
+                  const isOverdue  = status === "overdue";
+                  const isPaid     = status === "paid";
+                  const isScheduled = status === "scheduled";
+                  return (
+                    <tr
+                      key={bill.id}
+                      className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 !== 0 ? "bg-gray-50/30" : ""}`}
+                    >
+                      <td className="px-6 py-3.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 bg-gray-100 rounded-md flex items-center justify-center shrink-0">
+                            <Building2 size={13} className="text-gray-400" />
+                          </div>
+                          <p className="text-sm font-medium text-gray-900 truncate max-w-[140px]">
+                            {vendor?.name ?? "—"}
+                          </p>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <span className="text-xs text-gray-400 font-mono">{bill.bill_number ?? "—"}</span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
+                          {vendor?.category ?? bill.chart_of_accounts?.name ?? "—"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <span className={`text-sm ${isOverdue ? "text-red-600 font-semibold" : "text-gray-600"}`}>
+                          {fmtDate(bill.due_date)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3.5 text-right">
+                        <span className="text-sm font-bold text-gray-900">{fmt(bill.amount, currency)}</span>
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <StatusPill status={status} />
+                      </td>
+                      <td className="px-3 py-3.5">
+                        <div className="flex items-center gap-1.5">
+                          {(isPending || isOverdue) && (
+                            <button
+                              onClick={() => handleApprove(bill.id)}
+                              disabled={approveMut.isPending}
+                              className="px-2.5 py-1 text-xs font-semibold bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          {(isScheduled || isOverdue || isPending) && (
+                            <button
+                              onClick={() => handlePayNow(bill.id)}
+                              disabled={markPaidMut.isPending}
+                              className={`px-2.5 py-1 text-xs font-semibold rounded-lg disabled:opacity-50 whitespace-nowrap ${
+                                isOverdue
+                                  ? "bg-red-500 text-white hover:bg-red-600"
+                                  : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
+                              }`}
+                            >
+                              {isOverdue ? "Pay Now" : "Mark Paid"}
+                            </button>
+                          )}
+                          {isPaid && (
+                            <span className="flex items-center gap-1 text-xs text-green-600 font-medium">
+                              <CheckCircle size={12} /> Paid
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="px-6 py-4 border-t border-gray-100">
+          <p className="text-sm text-gray-400">
+            {bills.length} bill{bills.length !== 1 ? "s" : ""}
+          </p>
         </div>
       </div>
     </div>
