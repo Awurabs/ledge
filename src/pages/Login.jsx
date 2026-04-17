@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Eye, EyeOff, AlertCircle } from "lucide-react";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseMisconfigured } from "../lib/supabase";
 
 export default function Login() {
   const navigate  = useNavigate();
@@ -21,6 +21,9 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
+      if (supabaseMisconfigured) {
+        throw new Error("Supabase is not configured. VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables are missing.");
+      }
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email:    form.email.trim(),
         password: form.password,

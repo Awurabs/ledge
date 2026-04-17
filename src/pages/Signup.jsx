@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseMisconfigured } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
 export default function Signup() {
@@ -38,6 +38,9 @@ export default function Signup() {
 
     setLoading(true);
     try {
+      if (supabaseMisconfigured) {
+        throw new Error("Supabase is not configured. VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables are missing.");
+      }
       // 1. Create auth user
       const { data, error: signUpError } = await supabase.auth.signUp({
         email:    form.email.trim(),
