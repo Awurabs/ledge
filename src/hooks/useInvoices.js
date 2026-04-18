@@ -195,14 +195,15 @@ export function useRecordInvoicePayment() {
 
       // Insert payment record
       const { error: pmtErr } = await supabase.from("invoice_payments").insert({
-        invoice_id:     invoiceId,
+        invoice_id:      invoiceId,
+        organization_id: orgId,
         amount,
-        currency:       inv.currency ?? "GHS",
-        payment_date:   paymentDate ?? new Date().toISOString().slice(0, 10),
-        payment_method: paymentMethod ?? "bank_transfer",
-        reference:      reference ?? null,
-        note:           note ?? null,
-        created_by:     user?.id,
+        currency:        inv.currency ?? "GHS",
+        payment_date:    paymentDate ?? new Date().toISOString().slice(0, 10),
+        payment_method:  paymentMethod ?? "bank_transfer",
+        reference:       reference ?? null,
+        note:            note ?? null,
+        created_by:      user?.id,
       });
       if (pmtErr) throw pmtErr;
 
