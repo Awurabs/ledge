@@ -482,7 +482,7 @@ export default function Analytics() {
                   </div>
                   <div className="w-28 shrink-0 text-right">
                     <span className="text-xs font-semibold tabular-nums text-gray-900">
-                      {fmtCompact(c.amount * 100, currency)}
+                      {fmtCompact(c.amount, currency)}
                     </span>
                     <span className="text-xs text-gray-400 ml-1">({c.pct.toFixed(0)}%)</span>
                   </div>

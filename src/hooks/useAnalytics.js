@@ -165,10 +165,10 @@ export function useAnalytics(period = "6m") {
           .is("deleted_at", null)
           .not("status", "in", '("void","draft")'),
 
-        // Bills in range for AP
+        // Bills in range for AP  (bills uses `amount`, not total_amount)
         supabase
           .from("bills")
-          .select("id, total_amount, amount_paid, amount_due, due_date, status")
+          .select("id, amount, due_date, status")
           .eq("organization_id", orgId)
           .is("deleted_at", null)
           .not("status", "in", '("void")'),
@@ -320,7 +320,7 @@ export function useAnalytics(period = "6m") {
       // ── AP outstanding (bills not paid) ─────────────────────────────────
       const totalAP = sumField(
         (bills.data ?? []).filter((b) => b.status !== "paid"),
-        "amount_due"
+        "amount"
       );
 
       // ── Profitability margin ──────────────────────────────────────────────
