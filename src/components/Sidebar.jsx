@@ -52,7 +52,7 @@ const navGroups = [
   {
     label: "Money",
     items: [
-      { label: "Customers",       path: "/customers",       icon: UserCheck },
+      { label: "Customers & Vendors", path: "/customers",    icon: UserCheck },
       { label: "Invoicing",       path: "/invoicing",       icon: FileText },
       { label: "Bills",           path: "/bills",           icon: Receipt },
       { label: "Reimbursements",  path: "/reimbursements",  icon: RefreshCcw },
