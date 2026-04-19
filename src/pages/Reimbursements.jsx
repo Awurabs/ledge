@@ -68,7 +68,8 @@ function SubmitModal({ onClose, currency }) {
   const createMut = useCreateReimbursement();
   const fileInputRef = useRef(null);
 
-  const [form, setForm]           = useState({ category: "", description: "", amount: "", date: "", notes: "" });
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm]           = useState({ category: "", description: "", amount: "", date: today, notes: "" });
   const [receiptFile, setReceiptFile] = useState(null);
   const [dragOver, setDragOver]   = useState(false);
   const [error, setError]         = useState("");
@@ -110,10 +111,17 @@ function SubmitModal({ onClose, currency }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">Submit Expense</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
+
+        {error && (
+          <div className="flex items-center gap-2 mb-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            <AlertCircle size={13} className="shrink-0" />
+            {error}
+          </div>
+        )}
 
         <div className="space-y-4">
           {/* Category */}
@@ -228,13 +236,6 @@ function SubmitModal({ onClose, currency }) {
             />
           </div>
         </div>
-
-        {error && (
-          <div className="flex items-center gap-2 mt-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
-            <AlertCircle size={13} className="shrink-0" />
-            {error}
-          </div>
-        )}
 
         <div className="flex gap-3 mt-6">
           <button
