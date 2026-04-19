@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import {
   Plus, Send, FileText, Clock, CheckCircle, AlertCircle,
   Trash2, ChevronRight, X, Download, Share2, Ban,
@@ -589,6 +589,149 @@ function InvoiceDocument({ invoice, currency, orgName }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ContactCombobox — searchable autocomplete for picking a customer
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ContactCombobox({ contacts, value, onChange, onAddNew }) {
+  const [query,    setQuery]    = useState("");
+  const [open,     setOpen]     = useState(false);
+  const inputRef                = useRef(null);
+  const closeTimer              = useRef(null);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase().trim();
+    const results = q
+      ? contacts.filter((c) =>
+          c.name.toLowerCase().includes(q) ||
+          c.email?.toLowerCase().includes(q) ||
+          c.phone?.includes(q)
+        )
+      : contacts;
+    return results.slice(0, 8);
+  }, [contacts, query]);
+
+  const handleSelect = useCallback((c) => {
+    onChange(c);
+    setQuery("");
+    setOpen(false);
+  }, [onChange]);
+
+  const handleClear = () => {
+    onChange(null);
+    setQuery("");
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  // Use mouseDown on dropdown items so the click fires before the input's blur
+  const keepOpen = () => {
+    clearTimeout(closeTimer.current);
+  };
+  const scheduleClose = () => {
+    closeTimer.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  return (
+    <div className="relative">
+      {/* ── Selected contact card ── */}
+      {value && !open ? (
+        <div className="flex items-center gap-3 px-3 py-2.5 border-2 border-green-500 bg-green-50 rounded-xl">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+            {value.name[0].toUpperCase()}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900 truncate">{value.name}</p>
+            {value.email && <p className="text-xs text-gray-400 truncate">{value.email}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={handleClear}
+            className="shrink-0 text-gray-400 hover:text-gray-700 p-1 rounded-lg hover:bg-white/60 transition-colors"
+            title="Change customer"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      ) : (
+        /* ── Search input ── */
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onBlur={scheduleClose}
+            placeholder="Search by name, email or phone…"
+            className="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-400 bg-white"
+            autoComplete="off"
+          />
+          {query && (
+            <button
+              type="button"
+              onMouseDown={keepOpen}
+              onClick={() => { setQuery(""); inputRef.current?.focus(); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Dropdown ── */}
+      {open && (
+        <div
+          className="absolute top-full left-0 right-0 mt-1.5 bg-white rounded-xl border border-gray-200 shadow-xl z-20 overflow-hidden"
+          onMouseDown={keepOpen}
+        >
+          <div className="max-h-56 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-4 py-4 text-center">
+                <p className="text-sm text-gray-400">
+                  {query ? `No customers match "${query}"` : "No customers yet"}
+                </p>
+              </div>
+            ) : (
+              filtered.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onMouseDown={() => handleSelect(c)}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-green-50 text-left transition-colors group"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-xs shrink-0">
+                    {c.name[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate group-hover:text-green-700">
+                      {c.name}
+                    </p>
+                    {c.email && <p className="text-xs text-gray-400 truncate">{c.email}</p>}
+                  </div>
+                  {c.phone && <p className="text-xs text-gray-300 shrink-0">{c.phone}</p>}
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Add new customer footer */}
+          <div className="border-t border-gray-100 bg-gray-50/50">
+            <button
+              type="button"
+              onMouseDown={() => { setOpen(false); onAddNew(); }}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors"
+            >
+              <Plus size={14} />
+              {query ? `Add "${query}" as new customer` : "Add new customer"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Invoice Builder (multi-step modal)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -606,7 +749,6 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
     footer:        "",
     items:         [emptyItem()],
   });
-  const [contactSearch, setContactSearch] = useState("");
 
   const upd     = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const updItem = (i, k, v) => setForm((f) => ({
@@ -622,10 +764,6 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
 
   const validItems  = form.items.filter((it) => it.description.trim() && it.unit_price);
   const canContinue = [null, !!contact, validItems.length > 0, true][step] ?? true;
-
-  const filteredContacts = contacts.filter((c) =>
-    !contactSearch || c.name.toLowerCase().includes(contactSearch.toLowerCase())
-  );
 
   function handleSave() {
     onSave({
@@ -707,49 +845,20 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
           {step === 1 && (
             <div className="space-y-5">
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm font-semibold text-gray-800">Select Customer</p>
-                  <button onClick={onNeedContact}
-                    className="flex items-center gap-1.5 text-xs font-semibold text-green-600 hover:text-green-700 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg transition-colors">
-                    <Plus size={12} /> New Customer
-                  </button>
-                </div>
-                {contacts.length > 4 && (
-                  <div className="relative mb-3">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input value={contactSearch} onChange={(e) => setContactSearch(e.target.value)}
-                      placeholder="Search customers…"
-                      className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400" />
-                  </div>
-                )}
-                {filteredContacts.length === 0 ? (
-                  <div className="text-center py-10">
-                    <User size={28} className="mx-auto mb-2 text-gray-300" />
-                    <p className="text-sm text-gray-400">No customers yet</p>
-                    <button onClick={onNeedContact} className="mt-2 text-xs text-green-600 font-semibold hover:underline">
-                      Add your first customer →
+                <p className="text-sm font-semibold text-gray-800 mb-2">Select Customer</p>
+                <ContactCombobox
+                  contacts={contacts}
+                  value={contact}
+                  onChange={setContact}
+                  onAddNew={onNeedContact}
+                />
+                {!contact && (
+                  <p className="text-xs text-gray-400 mt-2">
+                    Type a name, email or phone number to search, or{" "}
+                    <button type="button" onClick={onNeedContact} className="text-green-600 font-semibold hover:underline">
+                      add a new customer
                     </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                    {filteredContacts.map((c) => (
-                      <button key={c.id} onClick={() => setContact(c)}
-                        className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
-                          contact?.id === c.id
-                            ? "border-green-500 bg-green-50"
-                            : "border-gray-100 hover:border-gray-200 bg-gray-50/50"
-                        }`}>
-                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-                          {c.name[0].toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-gray-900 truncate">{c.name}</p>
-                          {c.email && <p className="text-xs text-gray-400 truncate">{c.email}</p>}
-                        </div>
-                        {contact?.id === c.id && <Check size={15} className="text-green-500 shrink-0" />}
-                      </button>
-                    ))}
-                  </div>
+                  </p>
                 )}
               </div>
 
