@@ -185,15 +185,16 @@ function UploadStatementModal({ onClose, bankAccounts }) {
   const [colMap,    setColMap]    = useState({});
   const [preview,   setPreview]   = useState([]);
   const [selected,  setSelected]  = useState({});
-  const [imageUrl,  setImageUrl]  = useState(null);
   const [imported,  setImported]  = useState(0);
 
   function pickFile(f) {
     if (!f) return;
-    setFile(f); setError("");
     const ext = f.name.split(".").pop().toLowerCase();
-    if (["jpg","jpeg","png"].includes(ext)) setImageUrl(URL.createObjectURL(f));
-    else setImageUrl(null);
+    if (!["csv","xlsx","xls"].includes(ext)) {
+      setError("Only CSV and Excel (.xlsx / .xls) files are supported. Please export your statement from your bank's app as CSV or Excel.");
+      return;
+    }
+    setFile(f); setError("");
   }
 
   async function handleParse() {
@@ -216,12 +217,8 @@ function UploadStatementModal({ onClose, bankAccounts }) {
           else                          init[i] = "— ignore —";
         });
         setColMap(init); setStep("map");
-      } else if (result.type === "pdf_parsed") {
-        buildPreview(result.transactions);
-      } else if (result.type === "image") {
-        setStep("map");
       } else {
-        setError("Could not extract transactions. Try exporting as CSV from your bank's app.");
+        setError("Could not extract transactions. Make sure your file has a header row and data rows.");
         setStep("select");
       }
     } catch (err) {
@@ -276,7 +273,7 @@ function UploadStatementModal({ onClose, bankAccounts }) {
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div>
             <h3 className="text-base font-semibold text-gray-900">{titles[step]}</h3>
-            {step === "select"  && <p className="text-xs text-gray-500 mt-0.5">CSV, Excel, PDF, JPG or PNG</p>}
+            {step === "select"  && <p className="text-xs text-gray-500 mt-0.5">CSV or Excel (.xlsx / .xls)</p>}
             {step === "map" && parsed?.type === "structured" && <p className="text-xs text-gray-500 mt-0.5">We've made our best guess — adjust if needed</p>}
             {step === "preview" && <p className="text-xs text-gray-500 mt-0.5">{preview.length} transaction{preview.length !== 1 ? "s" : ""} found — uncheck any you don't want</p>}
           </div>
@@ -302,13 +299,13 @@ function UploadStatementModal({ onClose, bankAccounts }) {
                   {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </div>
-              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ofx,.qfx,.pdf,.jpg,.jpeg,.png"
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls"
                 className="hidden" onChange={e => pickFile(e.target.files?.[0])} />
               {file ? (
                 <div className="flex items-center gap-2 border border-green-200 bg-green-50 rounded-lg px-3 py-3">
                   <FileSpreadsheet size={16} className="text-green-600 shrink-0" />
                   <span className="text-sm text-green-700 truncate flex-1">{file.name}</span>
-                  <button onClick={() => { setFile(null); setImageUrl(null); }} className="text-green-500 hover:text-green-700"><X size={14} /></button>
+                  <button onClick={() => setFile(null)} className="text-green-500 hover:text-green-700"><X size={14} /></button>
                 </div>
               ) : (
                 <div onClick={() => fileInputRef.current?.click()}
@@ -320,7 +317,7 @@ function UploadStatementModal({ onClose, bankAccounts }) {
                   }`}>
                   <Upload size={24} className="mx-auto text-gray-400 mb-2" />
                   <p className="text-sm text-gray-600">Drop your statement here or <span className="text-green-600 font-medium">browse</span></p>
-                  <p className="text-xs text-gray-400 mt-1">CSV · Excel · PDF · JPG · PNG</p>
+                  <p className="text-xs text-gray-400 mt-1">CSV · Excel (.xlsx / .xls)</p>
                 </div>
               )}
             </div>
@@ -369,22 +366,6 @@ function UploadStatementModal({ onClose, bankAccounts }) {
                   </p>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* MAP — image */}
-          {step === "map" && parsed?.type === "image" && (
-            <div>
-              {imageUrl && <img src={imageUrl} alt="statement" className="w-full rounded-lg border border-gray-200 mb-4 max-h-64 object-contain bg-gray-50" />}
-              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-2">
-                <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">Image statements need manual review</p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    AI-powered image parsing is coming soon. For now, export your statement as CSV or PDF from your bank's app and re-upload.
-                  </p>
-                </div>
-              </div>
             </div>
           )}
 
@@ -474,7 +455,7 @@ function UploadStatementModal({ onClose, bankAccounts }) {
           )}
           {step === "preview" && (
             <>
-              <button onClick={() => { setStep(parsed?.type === "pdf_parsed" ? "select" : "map"); setError(""); }}
+              <button onClick={() => { setStep("map"); setError(""); }}
                 className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Back</button>
               <button onClick={handleImport} disabled={importMut.isPending || selectedCount === 0}
                 className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-40">
