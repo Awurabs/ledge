@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   Search, Download, Plus, ChevronDown, ChevronUp,
   Receipt, AlertCircle, FileText, X, CheckCircle,
-  Banknote,
+  Banknote, TrendingDown, Clock, BadgeCheck,
 } from "lucide-react";
 import { useExpenses, useCreateExpense, useUpdateExpense } from "../hooks/useExpenses";
 import { useTransactionCategories } from "../hooks/useTransactions";
@@ -291,6 +291,40 @@ export default function Expenses() {
           </button>
         </div>
       </div>
+
+      {/* Stat Cards */}
+      {(() => {
+        const totalAll      = expenses.reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalApproved = expenses.filter((e) => e.status === "approved" || e.status === "reimbursed").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalPending  = expenses.filter((e) => e.status === "submitted").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalDraft    = expenses.filter((e) => e.status === "draft" || e.status === "pending").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const cards = [
+          { label: "Total Expenses",  value: totalAll,      icon: TrendingDown, color: "text-red-600",    bg: "bg-red-50",    badge: `${expenses.length} entries`                                                          },
+          { label: "Approved",        value: totalApproved, icon: BadgeCheck,   color: "text-green-600",  bg: "bg-green-50",  badge: `${expenses.filter((e) => e.status === "approved" || e.status === "reimbursed").length} expenses` },
+          { label: "Pending Approval",value: totalPending,  icon: Clock,        color: "text-amber-600",  bg: "bg-amber-50",  badge: `${expenses.filter((e) => e.status === "submitted").length} submitted`                },
+          { label: "Drafts",          value: totalDraft,    icon: FileText,     color: "text-gray-500",   bg: "bg-gray-100",  badge: `${expenses.filter((e) => e.status === "draft" || e.status === "pending").length} drafts` },
+        ];
+        return (
+          <div className="grid grid-cols-4 gap-4 mb-5">
+            {cards.map((c) => (
+              <div key={c.label} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-500">{c.label}</p>
+                  <div className={`${c.bg} p-2 rounded-lg`}>
+                    <c.icon size={16} className={c.color} />
+                  </div>
+                </div>
+                {isLoading ? (
+                  <Skeleton className="h-7 w-28 mb-1" />
+                ) : (
+                  <p className="text-xl font-bold text-gray-900 mb-1">{fmt(c.value, currency)}</p>
+                )}
+                <p className="text-xs text-gray-400">{c.badge}</p>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       {/* Filter Bar */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-5">
