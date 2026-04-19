@@ -5,9 +5,76 @@ import {
   Banknote, TrendingDown, Clock, BadgeCheck,
 } from "lucide-react";
 import { useExpenses, useCreateExpense, useUpdateExpense } from "../hooks/useExpenses";
+import { useBills } from "../hooks/useBills";
+import { useReimbursements } from "../hooks/useReimbursements";
 import { useTransactionCategories } from "../hooks/useTransactions";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
+
+// ── Source badge ───────────────────────────────────────────────────────────────
+const SRC = {
+  expense:       { label: "Expense",       bg: "bg-orange-100", text: "text-orange-700" },
+  bill:          { label: "Bill",          bg: "bg-blue-100",   text: "text-blue-700"   },
+  reimbursement: { label: "Reimbursement", bg: "bg-purple-100", text: "text-purple-700" },
+};
+function SourceBadge({ source }) {
+  const c = SRC[source] ?? SRC.expense;
+  return <span className={`rounded-full text-xs px-2 py-0.5 font-medium ${c.bg} ${c.text}`}>{c.label}</span>;
+}
+
+// ── Normalise all three sources ────────────────────────────────────────────────
+const BILL_STATUS = { paid:"reimbursed", void:"rejected", scheduled:"approved", pending_approval:"submitted", draft:"draft" };
+const REIMB_STATUS = { paid:"reimbursed", approved:"approved", rejected:"rejected", submitted:"submitted" };
+
+function normalise(expenses, bills, reimbursements) {
+  const fromExpenses = expenses.map((e) => ({
+    _id:      e.id,
+    _source:  "expense",
+    merchant: e.merchant_name ?? "—",
+    amount:   e.amount,
+    date:     e.expense_date,
+    status:   e.status,
+    category: e.transaction_categories ?? null,
+    submitter: e.organization_members?.profiles ?? null,
+    hasReceipt: (e.expense_attachments?.length ?? 0) > 0,
+    description: e.description ?? null,
+    department: e.departments?.name ?? null,
+    _raw: e,
+  }));
+
+  const fromBills = bills.map((b) => ({
+    _id:      b.id,
+    _source:  "bill",
+    merchant: b.contact?.name ?? b.bill_number ?? "—",
+    amount:   b.amount ?? 0,
+    date:     b.bill_date,
+    status:   BILL_STATUS[b.status] ?? "draft",
+    category: null,
+    submitter: null,
+    hasReceipt: false,
+    description: b.description ?? b.bill_number ?? null,
+    department: null,
+    _raw: b,
+  }));
+
+  const fromReimbs = reimbursements.map((r) => ({
+    _id:      r.id,
+    _source:  "reimbursement",
+    merchant: r.title ?? "—",
+    amount:   r.total_amount ?? 0,
+    date:     (r.submitted_at ?? r.created_at ?? "").slice(0, 10),
+    status:   REIMB_STATUS[r.status] ?? "submitted",
+    category: null,
+    submitter: r.organization_members?.profiles ?? null,
+    hasReceipt: r.reimbursement_items?.some((i) => i.receipt_storage_key) ?? false,
+    description: r.description ?? null,
+    department: null,
+    _raw: r,
+  }));
+
+  return [...fromExpenses, ...fromBills, ...fromReimbs]
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
 
 // ── Skeleton ───────────────────────────────────────────────────────────────────
 function Skeleton({ className = "" }) {
@@ -224,20 +291,32 @@ export default function Expenses() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter,   setStatusFilter]   = useState("all");
   const [search,         setSearch]         = useState("");
+  const [sourceFilter,   setSourceFilter]   = useState("all");
   const [expandedRow,    setExpandedRow]     = useState(null);
   const [showNewPanel,   setShowNewPanel]   = useState(false);
   const [toast,          setToast]          = useState(null);
 
-  const queryFilters = {
-    ...(statusFilter !== "all"   && { status: statusFilter }),
-    ...(categoryFilter !== "all" && { categoryId: categoryFilter }),
-    ...(search.trim()            && { search: search.trim() }),
-  };
+  // Fetch all three sources
+  const { data: expenseData  = [], isLoading: loadingExp   } = useExpenses({});
+  const { data: billData     = [], isLoading: loadingBills  } = useBills();
+  const { data: reimbData    = [], isLoading: loadingReimbs } = useReimbursements();
+  const { data: categories   = [] }                          = useTransactionCategories();
+  const updateMut = useUpdateExpense();
+  const createMut = useCreateExpense();
 
-  const { data: expenses = [], isLoading } = useExpenses(queryFilters);
-  const { data: categories = [] }          = useTransactionCategories();
-  const updateMut  = useUpdateExpense();
-  const createMut  = useCreateExpense();
+  const isLoading = loadingExp || loadingBills || loadingReimbs;
+
+  // Normalise → then filter client-side
+  const allItems = normalise(expenseData, billData, reimbData);
+
+  const items = allItems.filter((item) => {
+    if (sourceFilter   !== "all" && item._source !== sourceFilter) return false;
+    if (statusFilter   !== "all" && item.status  !== statusFilter)  return false;
+    if (categoryFilter !== "all" && item.category?.id !== categoryFilter) return false;
+    if (search.trim() && !item.merchant.toLowerCase().includes(search.toLowerCase()) &&
+        !(item.description ?? "").toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
   const expenseCats = categories.filter((c) => c.type === "expense");
 
@@ -247,11 +326,10 @@ export default function Expenses() {
     setTimeout(() => setToast(null), 4000);
   }
 
-  const total = expenses.reduce((s, e) => s + (e.amount ?? 0), 0);
-
   const clearFilters = () => {
     setCategoryFilter("all");
     setStatusFilter("all");
+    setSourceFilter("all");
     setSearch("");
   };
 
@@ -294,15 +372,15 @@ export default function Expenses() {
 
       {/* Stat Cards */}
       {(() => {
-        const totalAll      = expenses.reduce((s, e) => s + (e.amount ?? 0), 0);
-        const totalApproved = expenses.filter((e) => e.status === "approved" || e.status === "reimbursed").reduce((s, e) => s + (e.amount ?? 0), 0);
-        const totalPending  = expenses.filter((e) => e.status === "submitted").reduce((s, e) => s + (e.amount ?? 0), 0);
-        const totalDraft    = expenses.filter((e) => e.status === "draft" || e.status === "pending").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalAll      = allItems.reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalApproved = allItems.filter((e) => e.status === "approved" || e.status === "reimbursed").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalPending  = allItems.filter((e) => e.status === "submitted").reduce((s, e) => s + (e.amount ?? 0), 0);
+        const totalDraft    = allItems.filter((e) => e.status === "draft" || e.status === "pending").reduce((s, e) => s + (e.amount ?? 0), 0);
         const cards = [
-          { label: "Total Expenses",  value: totalAll,      icon: TrendingDown, color: "text-red-600",    bg: "bg-red-50",    badge: `${expenses.length} entries`                                                          },
-          { label: "Approved",        value: totalApproved, icon: BadgeCheck,   color: "text-green-600",  bg: "bg-green-50",  badge: `${expenses.filter((e) => e.status === "approved" || e.status === "reimbursed").length} expenses` },
-          { label: "Pending Approval",value: totalPending,  icon: Clock,        color: "text-amber-600",  bg: "bg-amber-50",  badge: `${expenses.filter((e) => e.status === "submitted").length} submitted`                },
-          { label: "Drafts",          value: totalDraft,    icon: FileText,     color: "text-gray-500",   bg: "bg-gray-100",  badge: `${expenses.filter((e) => e.status === "draft" || e.status === "pending").length} drafts` },
+          { label: "Total Expenses",  value: totalAll,      icon: TrendingDown, color: "text-red-600",    bg: "bg-red-50",    badge: `${allItems.length} entries`                                                              },
+          { label: "Approved",        value: totalApproved, icon: BadgeCheck,   color: "text-green-600",  bg: "bg-green-50",  badge: `${allItems.filter((e) => e.status === "approved" || e.status === "reimbursed").length} items` },
+          { label: "Pending Approval",value: totalPending,  icon: Clock,        color: "text-amber-600",  bg: "bg-amber-50",  badge: `${allItems.filter((e) => e.status === "submitted").length} submitted`                    },
+          { label: "Drafts",          value: totalDraft,    icon: FileText,     color: "text-gray-500",   bg: "bg-gray-100",  badge: `${allItems.filter((e) => e.status === "draft" || e.status === "pending").length} drafts`  },
         ];
         return (
           <div className="grid grid-cols-4 gap-4 mb-5">
@@ -358,6 +436,22 @@ export default function Expenses() {
               <option value="submitted">Submitted</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
+              <option value="reimbursed">Reimbursed</option>
+            </select>
+            <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          </div>
+
+          {/* Source filter */}
+          <div className="relative">
+            <select
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-300 cursor-pointer"
+            >
+              <option value="all">All Sources</option>
+              <option value="expense">Expense</option>
+              <option value="bill">Bill</option>
+              <option value="reimbursement">Reimbursement</option>
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
@@ -386,10 +480,10 @@ export default function Expenses() {
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
         <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-between">
           <span className="text-sm text-gray-500">
-            Showing <span className="font-semibold text-gray-900">{expenses.length}</span> expenses
+            Showing <span className="font-semibold text-gray-900">{items.length}</span> entries
           </span>
           <span className="text-sm text-gray-500">
-            Total: <span className="font-semibold text-gray-900 tabular-nums">{fmt(total, currency)}</span>
+            Total: <span className="font-semibold text-gray-900 tabular-nums">{fmt(items.reduce((s, i) => s + (i.amount ?? 0), 0), currency)}</span>
           </span>
         </div>
 
@@ -398,7 +492,7 @@ export default function Expenses() {
           <div className="p-6 space-y-3">
             {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
-        ) : expenses.length === 0 ? (
+        ) : items.length === 0 ? (
           <div className="py-16 text-center text-gray-400">
             <Search size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No expenses found</p>
@@ -411,7 +505,7 @@ export default function Expenses() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
-                  {["Date", "Merchant", "Submitted By", "Category", "Amount", "Receipt", "Status", ""].map((h) => (
+                  {["Date", "Merchant", "Submitted By", "Category", "Source", "Amount", "Receipt", "Status", ""].map((h) => (
                     <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">
                       {h}
                     </th>
@@ -419,45 +513,44 @@ export default function Expenses() {
                 </tr>
               </thead>
               <tbody>
-                {expenses.map((exp) => {
-                  const cat         = exp.transaction_categories;
-                  const profile     = exp.organization_members?.profiles;
-                  const hasReceipt  = (exp.expense_attachments?.length ?? 0) > 0;
-                  const statusCfg   = STATUS_CONFIG[exp.status] ?? { color: "bg-gray-100 text-gray-600", label: exp.status ?? "—" };
-                  const dept        = exp.departments?.name;
-                  const initials    = getInitials(profile?.full_name);
+                {items.map((item) => {
+                  const statusCfg = STATUS_CONFIG[item.status] ?? { color: "bg-gray-100 text-gray-600", label: item.status ?? "—" };
+                  const initials  = getInitials(item.submitter?.full_name);
 
                   return (
                     <>
                       <tr
-                        key={exp.id}
-                        onClick={() => toggleRow(exp.id)}
-                        className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${!hasReceipt ? "border-l-4 border-l-amber-400" : "border-l-4 border-l-transparent"}`}
+                        key={item._id}
+                        onClick={() => toggleRow(item._id)}
+                        className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${!item.hasReceipt ? "border-l-4 border-l-amber-400" : "border-l-4 border-l-transparent"}`}
                       >
                         <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">
-                          {fmtDate(exp.expense_date)}
+                          {fmtDate(item.date)}
                         </td>
                         <td className="px-5 py-3.5 font-medium text-gray-900 whitespace-nowrap">
-                          {exp.merchant_name ?? "—"}
+                          {item.merchant}
                         </td>
                         <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center text-xs font-semibold text-green-700 shrink-0">
                               {initials}
                             </div>
-                            <span className="truncate max-w-[120px]">{profile?.full_name ?? "—"}</span>
+                            <span className="truncate max-w-[120px]">{item.submitter?.full_name ?? "—"}</span>
                           </div>
                         </td>
                         <td className="px-5 py-3.5">
                           <span className="text-xs font-medium bg-gray-100 text-gray-700 rounded-full px-2.5 py-0.5">
-                            {cat?.emoji} {cat?.name ?? "—"}
+                            {item.category?.emoji} {item.category?.name ?? "—"}
                           </span>
                         </td>
+                        <td className="px-5 py-3.5">
+                          <SourceBadge source={item._source} />
+                        </td>
                         <td className="px-5 py-3.5 font-semibold text-gray-900 tabular-nums whitespace-nowrap">
-                          {fmt(exp.amount, currency)}
+                          {fmt(item.amount, currency)}
                         </td>
                         <td className="px-5 py-3.5">
-                          {hasReceipt ? (
+                          {item.hasReceipt ? (
                             <span className="flex items-center gap-1.5 text-green-600 text-xs font-medium">
                               <Receipt size={13} /> Receipt
                             </span>
@@ -474,7 +567,7 @@ export default function Expenses() {
                         </td>
                         <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-2">
-                            {expandedRow === exp.id
+                            {expandedRow === item._id
                               ? <ChevronUp size={14} className="text-gray-500" />
                               : <ChevronDown size={14} className="text-gray-500" />
                             }
@@ -483,54 +576,66 @@ export default function Expenses() {
                       </tr>
 
                       {/* Expanded detail */}
-                      {expandedRow === exp.id && (
-                        <tr key={`detail-${exp.id}`} className="bg-green-50/40">
-                          <td colSpan={8} className="px-6 py-5 border-b border-gray-100">
+                      {expandedRow === item._id && (
+                        <tr key={`detail-${item._id}`} className="bg-green-50/40">
+                          <td colSpan={9} className="px-6 py-5 border-b border-gray-100">
                             <div className="grid grid-cols-3 gap-6">
-                              {/* Submitter & details */}
+                              {/* Details */}
                               <div>
-                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Expense Details</h4>
+                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                                  {item._source === "bill" ? "Bill Details" : item._source === "reimbursement" ? "Reimbursement Details" : "Expense Details"}
+                                </h4>
                                 <div className="space-y-2 text-sm">
                                   <div className="flex justify-between">
-                                    <span className="text-gray-500">Merchant</span>
-                                    <span className="font-medium text-gray-900">{exp.merchant_name ?? "—"}</span>
+                                    <span className="text-gray-500">{item._source === "bill" ? "Vendor" : "Merchant"}</span>
+                                    <span className="font-medium text-gray-900">{item.merchant}</span>
                                   </div>
-                                  <div className="flex justify-between">
-                                    <span className="text-gray-500">Submitted by</span>
-                                    <span className="font-medium text-gray-900">{profile?.full_name ?? "—"}</span>
-                                  </div>
-                                  {dept && (
+                                  {item.submitter && (
+                                    <div className="flex justify-between">
+                                      <span className="text-gray-500">Submitted by</span>
+                                      <span className="font-medium text-gray-900">{item.submitter.full_name}</span>
+                                    </div>
+                                  )}
+                                  {item.department && (
                                     <div className="flex justify-between">
                                       <span className="text-gray-500">Department</span>
-                                      <span className="font-medium text-gray-900">{dept}</span>
+                                      <span className="font-medium text-gray-900">{item.department}</span>
                                     </div>
                                   )}
                                   <div className="flex justify-between">
                                     <span className="text-gray-500">Date</span>
-                                    <span className="text-gray-700">{fmtDate(exp.expense_date)}</span>
+                                    <span className="text-gray-700">{fmtDate(item.date)}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span className="text-gray-500">Amount</span>
-                                    <span className="font-semibold text-gray-900">{fmt(exp.amount, currency)}</span>
+                                    <span className="font-semibold text-gray-900">{fmt(item.amount, currency)}</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-gray-500">Source</span>
+                                    <SourceBadge source={item._source} />
                                   </div>
                                 </div>
                               </div>
 
-                              {/* Note */}
+                              {/* Note — editable only for native expenses */}
                               <div>
                                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Notes</h4>
-                                <textarea
-                                  rows={3}
-                                  defaultValue={exp.description ?? ""}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onBlur={(e) => {
-                                    if (e.target.value !== (exp.description ?? "")) {
-                                      handleNoteChange(exp.id, e.target.value);
-                                    }
-                                  }}
-                                  placeholder="Add a note..."
-                                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
-                                />
+                                {item._source === "expense" ? (
+                                  <textarea
+                                    rows={3}
+                                    defaultValue={item.description ?? ""}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onBlur={(e) => {
+                                      if (e.target.value !== (item.description ?? "")) {
+                                        handleNoteChange(item._id, e.target.value);
+                                      }
+                                    }}
+                                    placeholder="Add a note..."
+                                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
+                                  />
+                                ) : (
+                                  <p className="text-sm text-gray-600">{item.description ?? "—"}</p>
+                                )}
                               </div>
 
                               {/* Actions */}
@@ -544,24 +649,24 @@ export default function Expenses() {
                                     <FileText size={14} />
                                     View Details
                                   </button>
-                                  {exp.status === "submitted" && (
+                                  {item._source === "expense" && item.status === "submitted" && (
                                     <>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: exp.id, status: "approved" }); }}
+                                        onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: item._id, status: "approved" }); }}
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-white bg-green-500 rounded-lg hover:bg-green-600"
                                       >
                                         <CheckCircle size={14} />
                                         Approve
                                       </button>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: exp.id, status: "rejected" }); }}
+                                        onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: item._id, status: "rejected" }); }}
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-red-600 border border-red-300 rounded-lg hover:bg-red-50"
                                       >
                                         Reject
                                       </button>
                                     </>
                                   )}
-                                  {!hasReceipt && (
+                                  {item._source === "expense" && !item.hasReceipt && (
                                     <button
                                       onClick={(e) => e.stopPropagation()}
                                       className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100"
@@ -582,11 +687,11 @@ export default function Expenses() {
 
                 {/* Totals row */}
                 <tr className="bg-gray-50 border-t-2 border-gray-200">
-                  <td colSpan={4} className="px-5 py-3.5 text-sm font-semibold text-gray-700">
-                    Total ({expenses.length} expenses)
+                  <td colSpan={5} className="px-5 py-3.5 text-sm font-semibold text-gray-700">
+                    Total ({items.length} {items.length === 1 ? "entry" : "entries"})
                   </td>
                   <td className="px-5 py-3.5 font-bold text-gray-900 tabular-nums text-sm">
-                    {fmt(total, currency)}
+                    {fmt(items.reduce((s, i) => s + (i.amount ?? 0), 0), currency)}
                   </td>
                   <td colSpan={3} />
                 </tr>
