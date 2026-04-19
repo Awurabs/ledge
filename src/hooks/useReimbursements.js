@@ -76,7 +76,8 @@ export function useCreateReimbursement() {
       const { data: req, error: reqErr } = await supabase
         .from("reimbursement_requests")
         .insert({
-          ...request,
+          title:           request.title,
+          description:     request.notes ?? null,   // DB column is description
           status:          "submitted",
           total_amount:    total,
           submitted_at:    new Date().toISOString(),
