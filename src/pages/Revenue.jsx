@@ -38,7 +38,7 @@ function StatusPill({ status }) {
 }
 
 // ── Record Revenue Panel ────────────────────────────────────────────────────────
-function RecordPanel({ categories, customers, currency, onClose, onSave }) {
+function RecordPanel({ categories, customers, currency, onClose, onSave, isSaving, saveError }) {
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState(null);
   const [form, setForm] = useState({
@@ -301,32 +301,54 @@ function RecordPanel({ categories, customers, currency, onClose, onSave }) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          {step > 1 && (
-            <button
-              onClick={() => setStep((s) => s - 1)}
-              className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-md py-2.5 text-sm font-medium hover:bg-gray-50"
-            >
-              Back
-            </button>
+        <div className="px-6 py-4 border-t border-gray-100">
+          {/* Inline error */}
+          {saveError && (
+            <div className="mb-3 text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              {saveError.message ?? "Something went wrong. Please try again."}
+            </div>
           )}
-          {step < 3 ? (
-            <button
-              onClick={() => setStep((s) => s + 1)}
-              disabled={step === 1 ? !canGoStep2 : !canGoStep3}
-              className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              Continue <ChevronRight size={15} />
-            </button>
-          ) : (
-            <button
-              onClick={handleSave}
-              className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 flex items-center justify-center gap-2"
-            >
-              <CheckCircle size={15} />
-              Save Revenue
-            </button>
-          )}
+          <div className="flex gap-3">
+            {step > 1 && (
+              <button
+                onClick={() => setStep((s) => s - 1)}
+                disabled={isSaving}
+                className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-md py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Back
+              </button>
+            )}
+            {step < 3 ? (
+              <button
+                onClick={() => setStep((s) => s + 1)}
+                disabled={step === 1 ? !canGoStep2 : !canGoStep3}
+                className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                Continue <ChevronRight size={15} />
+              </button>
+            ) : (
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isSaving ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Saving…
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle size={15} />
+                    Save Revenue
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -375,8 +397,13 @@ export default function Revenue() {
     createMut.mutate(values, {
       onSuccess: (rec) => {
         setShowPanel(false);
+        createMut.reset();
         setToast(`Revenue of ${fmt(rec.amount, currency)} recorded successfully.`);
         setTimeout(() => setToast(null), 4000);
+      },
+      onError: (err) => {
+        // error is surfaced inline in the panel via saveError prop
+        console.error("Revenue save failed:", err);
       },
     });
   }
@@ -385,8 +412,8 @@ export default function Revenue() {
     <div className="min-h-screen bg-[#F7F7F8] p-6">
       {/* Toast */}
       {toast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2.5">
-          <CheckCircle size={15} className="text-green-400" />
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2.5 animate-in fade-in slide-in-from-top-2">
+          <CheckCircle size={15} className="text-green-400 shrink-0" />
           {toast}
         </div>
       )}
@@ -606,8 +633,10 @@ export default function Revenue() {
           categories={categories}
           customers={customers}
           currency={currency}
-          onClose={() => setShowPanel(false)}
+          onClose={() => { setShowPanel(false); createMut.reset(); }}
           onSave={handleSave}
+          isSaving={createMut.isPending}
+          saveError={createMut.error}
         />
       )}
     </div>
