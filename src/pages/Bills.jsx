@@ -85,34 +85,44 @@ function AddBillModal({ onClose, currency }) {
     description: "",
   });
   const [creatingVendor, setCreatingVendor] = useState(false);
+  const [submitError, setSubmitError]       = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setSubmitError("");
+
     let vendorId   = form.vendorId;
     let vendorName = vendors.find((v) => v.id === vendorId)?.name ?? "";
 
-    // Create vendor inline if needed
-    if (creatingVendor && form.newVendorName.trim()) {
-      const v = await createVendorMut.mutateAsync({ name: form.newVendorName.trim() });
-      vendorId   = v.id;
-      vendorName = v.name;
-    }
+    try {
+      // Create vendor inline if needed
+      if (creatingVendor && form.newVendorName.trim()) {
+        const v = await createVendorMut.mutateAsync({ name: form.newVendorName.trim() });
+        vendorId   = v.id;
+        vendorName = v.name;
+      }
 
-    if (!vendorId) return;
+      if (!vendorId) {
+        setSubmitError("Please select a vendor.");
+        return;
+      }
 
-    createBillMut.mutate(
-      {
-        contact_id:  vendorId,               // FK → contacts(id)
-        vendor_name: vendorName,             // snapshot for display
-        bill_number: form.billNumber || "",  // auto-generated in hook if blank
+      await createBillMut.mutateAsync({
+        contact_id:  vendorId,
+        vendor_name: vendorName,
+        bill_number: form.billNumber || "",
         bill_date:   form.billDate,
         due_date:    form.dueDate || null,
         amount:      Math.round(parseFloat(form.amount || "0") * 100),
         description: form.description || null,
         status:      "pending",
-      },
-      { onSuccess: () => onClose() }
-    );
+      });
+
+      onClose();
+    } catch (err) {
+      console.error("Create bill error:", err);
+      setSubmitError(err?.message ?? "Failed to create bill. Please try again.");
+    }
   };
 
   const isBusy = createBillMut.isPending || createVendorMut.isPending;
@@ -238,6 +248,12 @@ function AddBillModal({ onClose, currency }) {
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
           </div>
+
+          {submitError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+              {submitError}
+            </p>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button
