@@ -54,29 +54,59 @@ export function useCreateJournalEntry() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ entry, lines }) => {
-      // Insert entry
+      const wantPosted = entry.status === "posted";
+
+      // 1. Insert as draft so lines can be attached before the balance
+      //    validation trigger and the balance-sync trigger run.
       const { data: je, error: jeErr } = await supabase
         .from("journal_entries")
-        .insert({ ...entry, organization_id: orgId, created_by: user?.id })
+        .insert({
+          ...entry,
+          status:         "draft",
+          organization_id: orgId,
+          created_by:     user?.id,
+        })
         .select()
         .single();
       if (jeErr) throw jeErr;
 
-      // Insert lines
+      // 2. Insert all lines
       const lineRows = lines.map((l, i) => ({
         ...l,
-        journal_id: je.id,
+        journal_id:      je.id,
         organization_id: orgId,
-        line_number: i + 1,
+        line_number:     i + 1,
       }));
       const { error: linesErr } = await supabase
         .from("journal_entry_lines")
         .insert(lineRows);
       if (linesErr) throw linesErr;
 
+      // 3. If the caller wanted "posted", transition now — this fires
+      //    validate_journal_balance (balance check) and
+      //    sync_posted_entry_to_balances (CoA balance update).
+      if (wantPosted) {
+        const { data: posted, error: postErr } = await supabase
+          .from("journal_entries")
+          .update({
+            status:    "posted",
+            posted_by: user?.id,
+            posted_at: new Date().toISOString(),
+          })
+          .eq("id", je.id)
+          .eq("organization_id", orgId)
+          .select()
+          .single();
+        if (postErr) throw postErr;
+        return posted;
+      }
+
       return je;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["journal_entries", orgId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["journal_entries", orgId] });
+      qc.invalidateQueries({ queryKey: ["chart_of_accounts", orgId] });
+    },
   });
 }
 
@@ -99,6 +129,9 @@ export function usePostJournalEntry() {
       if (error) throw error;
       return data;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["journal_entries", orgId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["journal_entries", orgId] });
+      qc.invalidateQueries({ queryKey: ["chart_of_accounts", orgId] });
+    },
   });
 }
