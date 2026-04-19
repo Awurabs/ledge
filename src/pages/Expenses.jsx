@@ -2,8 +2,9 @@ import { useState } from "react";
 import {
   Search, Download, Plus, ChevronDown, ChevronUp,
   Receipt, AlertCircle, FileText, X, CheckCircle,
+  Banknote,
 } from "lucide-react";
-import { useExpenses, useUpdateExpense } from "../hooks/useExpenses";
+import { useExpenses, useCreateExpense, useUpdateExpense } from "../hooks/useExpenses";
 import { useTransactionCategories } from "../hooks/useTransactions";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
@@ -31,6 +32,190 @@ function getInitials(name) {
     : name.slice(0, 2).toUpperCase();
 }
 
+// ── New Expense Panel ──────────────────────────────────────────────────────────
+function NewExpensePanel({ categories, currency, onClose, onCreate }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [form, setForm] = useState({
+    merchant_name: "",
+    amount: "",
+    expense_date: today,
+    category_id: "",
+    description: "",
+    is_reimbursable: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState("");
+  const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const expenseCats = categories.filter((c) => c.type === "expense");
+  const amountMinor = Math.round((parseFloat(form.amount.replace(/,/g, "")) || 0) * 100);
+  const canSave     = form.merchant_name.trim() && form.amount.trim() && form.expense_date;
+
+  async function handleSubmit(submitForApproval) {
+    if (!canSave) { setError("Please fill in merchant, amount and date."); return; }
+    setError(""); setSaving(true);
+    try {
+      await onCreate({
+        merchant_name:   form.merchant_name.trim(),
+        amount:          amountMinor,
+        expense_date:    form.expense_date,
+        category_id:     form.category_id || null,
+        description:     form.description.trim() || null,
+        is_reimbursable: form.is_reimbursable,
+        status:          submitForApproval ? "submitted" : "draft",
+        ...(submitForApproval && { submitted_at: new Date().toISOString() }),
+      });
+      onClose();
+    } catch (err) {
+      setError(err.message ?? "Failed to save expense.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="absolute right-0 top-0 h-full w-[420px] bg-white shadow-2xl flex flex-col z-50">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">New Expense</h2>
+            <p className="text-xs text-gray-400 mt-0.5">Fill in the details below</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+              <AlertCircle size={13} className="shrink-0" />{error}
+            </div>
+          )}
+
+          {/* Merchant */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Merchant / Vendor <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="text"
+              value={form.merchant_name}
+              onChange={(e) => upd("merchant_name", e.target.value)}
+              placeholder="e.g. Shell, Shoprite, Uber"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+
+          {/* Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Amount ({currency === "GHS" ? "GH₵" : currency}) <span className="text-red-400">*</span>
+            </label>
+            <div className="relative">
+              <Banknote size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.amount}
+                onChange={(e) => upd("amount", e.target.value)}
+                placeholder="0.00"
+                className="w-full border border-gray-300 rounded-md pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+
+          {/* Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Date <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="date"
+              value={form.expense_date}
+              onChange={(e) => upd("expense_date", e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <select
+              value={form.category_id}
+              onChange={(e) => upd("category_id", e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              <option value="">— No category —</option>
+              {expenseCats.map((c) => (
+                <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description / Note</label>
+            <textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => upd("description", e.target.value)}
+              placeholder="What was this expense for?"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+            />
+          </div>
+
+          {/* Reimbursable */}
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <div
+              onClick={() => upd("is_reimbursable", !form.is_reimbursable)}
+              className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
+                form.is_reimbursable ? "bg-green-500" : "bg-gray-300"
+              }`}
+            >
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                form.is_reimbursable ? "translate-x-4" : "translate-x-0"
+              }`} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-700">Reimbursable</p>
+              <p className="text-xs text-gray-400">Eligible for expense reimbursement</p>
+            </div>
+          </label>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
+          <button
+            onClick={() => handleSubmit(false)}
+            disabled={saving || !canSave}
+            className="flex-1 border border-gray-300 text-gray-700 rounded-md py-2.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {saving ? "Saving…" : "Save as Draft"}
+          </button>
+          <button
+            onClick={() => handleSubmit(true)}
+            disabled={saving || !canSave}
+            className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : <CheckCircle size={14} />}
+            Submit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function Expenses() {
   const { orgCurrency } = useAuth();
@@ -40,6 +225,8 @@ export default function Expenses() {
   const [statusFilter,   setStatusFilter]   = useState("all");
   const [search,         setSearch]         = useState("");
   const [expandedRow,    setExpandedRow]     = useState(null);
+  const [showNewPanel,   setShowNewPanel]   = useState(false);
+  const [toast,          setToast]          = useState(null);
 
   const queryFilters = {
     ...(statusFilter !== "all"   && { status: statusFilter }),
@@ -49,9 +236,16 @@ export default function Expenses() {
 
   const { data: expenses = [], isLoading } = useExpenses(queryFilters);
   const { data: categories = [] }          = useTransactionCategories();
-  const updateMut = useUpdateExpense();
+  const updateMut  = useUpdateExpense();
+  const createMut  = useCreateExpense();
 
   const expenseCats = categories.filter((c) => c.type === "expense");
+
+  async function handleCreate(values) {
+    await createMut.mutateAsync(values);
+    setToast(`Expense "${values.merchant_name}" ${values.status === "submitted" ? "submitted for approval" : "saved as draft"}.`);
+    setTimeout(() => setToast(null), 4000);
+  }
 
   const total = expenses.reduce((s, e) => s + (e.amount ?? 0), 0);
 
@@ -63,12 +257,20 @@ export default function Expenses() {
 
   const toggleRow = (id) => setExpandedRow((prev) => (prev === id ? null : id));
 
-  const handleNoteChange = (id, note) => {
-    updateMut.mutate({ id, note });
+  const handleNoteChange = (id, description) => {
+    updateMut.mutate({ id, description });
   };
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-6">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2.5">
+          <CheckCircle size={15} className="text-green-400 shrink-0" />
+          {toast}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -80,7 +282,10 @@ export default function Expenses() {
             <Download size={15} />
             Export CSV
           </button>
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg shadow-sm hover:bg-green-600">
+          <button
+            onClick={() => setShowNewPanel(true)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg shadow-sm hover:bg-green-600"
+          >
             <Plus size={15} />
             New Expense
           </button>
@@ -282,10 +487,10 @@ export default function Expenses() {
                                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Notes</h4>
                                 <textarea
                                   rows={3}
-                                  defaultValue={exp.note ?? ""}
+                                  defaultValue={exp.description ?? ""}
                                   onClick={(e) => e.stopPropagation()}
                                   onBlur={(e) => {
-                                    if (e.target.value !== (exp.note ?? "")) {
+                                    if (e.target.value !== (exp.description ?? "")) {
                                       handleNoteChange(exp.id, e.target.value);
                                     }
                                   }}
@@ -356,6 +561,15 @@ export default function Expenses() {
           </div>
         )}
       </div>
+
+      {showNewPanel && (
+        <NewExpensePanel
+          categories={categories}
+          currency={currency}
+          onClose={() => setShowNewPanel(false)}
+          onCreate={handleCreate}
+        />
+      )}
     </div>
   );
 }
