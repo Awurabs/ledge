@@ -14,7 +14,7 @@ export function useExpenses(filters = {}) {
           *,
           organization_members (
             id,
-            profiles ( id, full_name, avatar_url )
+            profiles:profiles!user_id ( id, full_name, avatar_url )
           ),
           transaction_categories ( id, name, emoji ),
           departments ( id, name ),
