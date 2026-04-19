@@ -5,10 +5,88 @@ import {
   CreditCard, Landmark, ChevronRight, Search,
 } from "lucide-react";
 import { useRevenue, useCreateRevenue } from "../hooks/useRevenue";
-import { useTransactionCategories } from "../hooks/useTransactions";
+import { useTransactions, useTransactionCategories } from "../hooks/useTransactions";
+import { useInvoices } from "../hooks/useInvoices";
 import { useContacts } from "../hooks/useContacts";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
+
+// ── Source badge ───────────────────────────────────────────────────────────────
+const SOURCE_CONFIG = {
+  manual:      { label: "Manual",      bg: "bg-green-100",  text: "text-green-700"  },
+  invoice:     { label: "Invoice",     bg: "bg-blue-100",   text: "text-blue-700"   },
+  transaction: { label: "Transaction", bg: "bg-purple-100", text: "text-purple-700" },
+};
+function SourceBadge({ source }) {
+  const cfg = SOURCE_CONFIG[source] ?? SOURCE_CONFIG.manual;
+  return (
+    <span className={`rounded-full text-xs px-2 py-0.5 font-medium ${cfg.bg} ${cfg.text}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+// ── Normalise records from all three sources into one shape ───────────────────
+function normalise(revenueRecords, invoices, creditTxns) {
+  // 1. Manual revenue records (exclude invoice-linked ones — shown via invoices directly)
+  const manual = revenueRecords
+    .filter((r) => !r.invoice_id)
+    .map((r) => ({
+      _id:     r.id,
+      _source: "manual",
+      payer:   r.payer_name || "—",
+      amount:  r.amount,
+      currency: r.currency ?? "GHS",
+      status:  r.status,
+      date:    r.revenue_date,
+      category: r.transaction_categories ?? null,
+      payment_method: r.payment_method ?? null,
+      note:    r.note ?? null,
+    }));
+
+  // 2. Invoices that are not drafts / void
+  const INVOICE_STATUSES = ["sent", "paid", "partial", "partially_paid", "overdue"];
+  const fromInvoices = invoices
+    .filter((inv) => INVOICE_STATUSES.includes(inv.status))
+    .map((inv) => {
+      const isPaid    = inv.status === "paid";
+      const isPartial = inv.status === "partial" || inv.status === "partially_paid";
+      const status    = isPaid ? "received" : isPartial ? "partial" : "pending";
+      // Use amount_paid for received/partial, total_amount for pending
+      const amount    = isPaid ? inv.total_amount
+                      : isPartial ? (inv.amount_paid ?? 0)
+                      : (inv.amount_due ?? inv.total_amount ?? 0);
+      return {
+        _id:     inv.id,
+        _source: "invoice",
+        payer:   inv.contacts?.name ?? inv.invoice_number ?? "—",
+        amount,
+        currency: inv.currency ?? "GHS",
+        status,
+        date:    inv.issue_date,
+        category: null,
+        payment_method: null,
+        note:    inv.invoice_number ?? null,
+      };
+    });
+
+  // 3. Credit transactions from the bank / imports
+  const fromTxns = creditTxns.map((t) => ({
+    _id:     t.id,
+    _source: "transaction",
+    payer:   t.description || "—",
+    amount:  t.amount,
+    currency: "GHS",
+    status:  t.status === "cleared" ? "received" : "pending",
+    date:    t.txn_date,
+    category: t.transaction_categories ?? null,
+    payment_method: null,
+    note:    null,
+  }));
+
+  return [...manual, ...fromInvoices, ...fromTxns]
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
 
 // ── Skeleton ───────────────────────────────────────────────────────────────────
 function Skeleton({ className = "" }) {
@@ -364,10 +442,17 @@ export default function Revenue() {
   const [showPanel,  setShowPanel]  = useState(false);
   const [toast,      setToast]      = useState(null);
 
-  const { data: records = [], isLoading } = useRevenue();
-  const { data: categories = [] }         = useTransactionCategories();
-  const { data: customers = [] }          = useContacts({ type: "customer" });
+  const { data: revenueRecords = [], isLoading: loadingRev }   = useRevenue();
+  const { data: allInvoices   = [], isLoading: loadingInv }   = useInvoices();
+  const { data: creditTxns    = [], isLoading: loadingTxns }  = useTransactions({ direction: "credit" });
+  const { data: categories    = [] }                          = useTransactionCategories();
+  const { data: customers     = [] }                          = useContacts({ type: "customer" });
   const createMut = useCreateRevenue();
+
+  const isLoading = loadingRev || loadingInv || loadingTxns;
+
+  // Merge all three sources into one normalised list
+  const records = normalise(revenueRecords, allInvoices, creditTxns);
 
   const tabs = ["all", "received", "pending", "partial"];
 
@@ -380,12 +465,12 @@ export default function Revenue() {
   const pending   = records.filter((r) => r.status === "pending").reduce((s, r) => s + (r.amount ?? 0), 0);
   const partial   = records.filter((r) => r.status === "partial").reduce((s, r) => s + (r.amount ?? 0), 0);
 
-  // Category breakdown for the bar chart
+  // Category breakdown (only manual/transaction records have categories)
   const catBreakdown = categories
     .filter((c) => c.type === "revenue")
     .map((cat) => {
       const catTotal = records
-        .filter((r) => r.category_id === cat.id)
+        .filter((r) => r.category?._id === cat.id || r.category?.id === cat.id)
         .reduce((s, r) => s + (r.amount ?? 0), 0);
       return { ...cat, total: catTotal, pct: totalMTD > 0 ? Math.round((catTotal / totalMTD) * 100) : 0 };
     })
@@ -437,9 +522,9 @@ export default function Revenue() {
       <div className="grid grid-cols-4 gap-4 mb-6">
         {[
           { label: "Total MTD",  value: totalMTD,  icon: TrendingUp,  color: "text-green-600",   bg: "bg-green-50",   badge: `${records.length} entries` },
-          { label: "Collected",  value: collected,  icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50", badge: `${records.filter((r) => r.status === "received").length} records` },
-          { label: "Pending",    value: pending,   icon: Clock,       color: "text-amber-600",   bg: "bg-amber-50",   badge: `${records.filter((r) => r.status === "pending").length} records` },
-          { label: "Partial",    value: partial,   icon: DollarSign,  color: "text-blue-600",    bg: "bg-blue-50",    badge: `${records.filter((r) => r.status === "partial").length} records` },
+          { label: "Collected",  value: collected, icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50", badge: `${records.filter((r) => r.status === "received").length} received` },
+          { label: "Pending",    value: pending,   icon: Clock,       color: "text-amber-600",   bg: "bg-amber-50",   badge: `${records.filter((r) => r.status === "pending").length} pending` },
+          { label: "Partial",    value: partial,   icon: DollarSign,  color: "text-blue-600",    bg: "bg-blue-50",    badge: `${records.filter((r) => r.status === "partial").length} partial` },
         ].map((stat) => (
           <div key={stat.label} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
             <div className="flex items-center justify-between mb-3">
@@ -564,7 +649,7 @@ export default function Revenue() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["Payer / Source", "Category", "Method", "Date", "Amount", "Status", ""].map((h) => (
+                  {["Payer / Source", "Source", "Category", "Method", "Date", "Amount", "Status"].map((h) => (
                     <th
                       key={h}
                       className={`text-xs font-semibold text-gray-400 uppercase tracking-wide py-3 ${
@@ -577,45 +662,46 @@ export default function Revenue() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((rev, i) => {
-                  const cat = rev.transaction_categories;
-                  return (
-                    <tr
-                      key={rev.id}
-                      className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 !== 0 ? "bg-gray-50/30" : ""}`}
-                    >
-                      <td className="px-6 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 bg-green-100 rounded-md flex items-center justify-center shrink-0">
-                            <span className="text-sm leading-none">{cat?.emoji ?? "💰"}</span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{rev.payer_name ?? "—"}</p>
-                            {rev.note && <p className="text-xs text-gray-400 truncate">{rev.note}</p>}
-                          </div>
+                {filtered.map((rev, i) => (
+                  <tr
+                    key={`${rev._source}-${rev._id}`}
+                    className={`border-b border-gray-50 hover:bg-gray-50 transition-colors ${i % 2 !== 0 ? "bg-gray-50/30" : ""}`}
+                  >
+                    <td className="px-6 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 bg-green-100 rounded-md flex items-center justify-center shrink-0">
+                          <span className="text-sm leading-none">{rev.category?.emoji ?? "💰"}</span>
                         </div>
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
-                          {cat?.name ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <span className="text-xs text-gray-500">{rev.payment_method ?? "—"}</span>
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <span className="text-sm text-gray-600">{fmtDate(rev.revenue_date)}</span>
-                      </td>
-                      <td className="px-3 py-3.5 text-right">
-                        <span className="text-sm font-bold text-green-700">{fmt(rev.amount, currency)}</span>
-                      </td>
-                      <td className="px-3 py-3.5">
-                        <StatusPill status={rev.status} />
-                      </td>
-                      <td className="px-3 py-3.5" />
-                    </tr>
-                  );
-                })}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{rev.payer}</p>
+                          {rev.note && <p className="text-xs text-gray-400 truncate">{rev.note}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <SourceBadge source={rev._source} />
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
+                        {rev.category?.name ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <span className="text-xs text-gray-500 capitalize">
+                        {rev.payment_method?.replace("_", " ") ?? "—"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <span className="text-sm text-gray-600">{fmtDate(rev.date)}</span>
+                    </td>
+                    <td className="px-3 py-3.5 text-right">
+                      <span className="text-sm font-bold text-green-700">{fmt(rev.amount, rev.currency ?? currency)}</span>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <StatusPill status={rev.status} />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

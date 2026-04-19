@@ -161,6 +161,8 @@ export function useMarkInvoiceSent() {
         .from("revenue_records")
         .insert({
           organization_id: orgId,
+          payer_name:      `Invoice ${inv.invoice_number}`,
+          ref_number:      `INV-${inv.invoice_number}`,
           description:     `Invoice ${inv.invoice_number}`,
           amount:          inv.total_amount,
           currency:        inv.currency ?? "GHS",
