@@ -34,9 +34,11 @@ const navGroups = [
   {
     label: "Spend",
     items: [
-      { label: "Cards",         path: "/cards",        icon: CreditCard },
-      { label: "Expenses",      path: "/expenses",     icon: ShoppingCart },
-      { label: "Approvals",     path: "/approvals",    icon: CheckCircle },
+      { label: "Cards",           path: "/cards",           icon: CreditCard },
+      { label: "Expenses",        path: "/expenses",        icon: ShoppingCart },
+      { label: "Bills",           path: "/bills",           icon: Receipt },
+      { label: "Reimbursements",  path: "/reimbursements",  icon: RefreshCcw },
+      { label: "Approvals",       path: "/approvals",       icon: CheckCircle },
     ],
   },
   {
@@ -53,8 +55,6 @@ const navGroups = [
     items: [
       { label: "Customers & Vendors", path: "/customers",    icon: UserCheck },
       { label: "Invoicing",       path: "/invoicing",       icon: FileText },
-      { label: "Bills",           path: "/bills",           icon: Receipt },
-      { label: "Reimbursements",  path: "/reimbursements",  icon: RefreshCcw },
       { label: "Transactions",    path: "/transactions",    icon: Wallet },
       { label: "Revenue",         path: "/revenue",         icon: Coins },
     ],
