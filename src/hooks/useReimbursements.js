@@ -16,7 +16,7 @@ export function useReimbursements(filters = {}) {
           *,
           organization_members (
             id,
-            profiles ( id, full_name, avatar_url )
+            profiles:profiles!user_id ( id, full_name, avatar_url )
           ),
           reimbursement_items (
             id, description, merchant_name, amount, expense_date,
