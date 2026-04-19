@@ -737,7 +737,7 @@ function ContactCombobox({ contacts, value, onChange, onAddNew }) {
 
 const emptyItem = () => ({ description: "", quantity: "1", unit_price: "" });
 
-function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) {
+function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, isSaving }) {
   const [step, setStep]   = useState(1);
   const [contact, setContact] = useState(null);
   const [form, setForm]   = useState({
@@ -765,20 +765,20 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
   const validItems  = form.items.filter((it) => it.description.trim() && it.unit_price);
   const canContinue = [null, !!contact, validItems.length > 0, true][step] ?? true;
 
-  function handleSave() {
-    onSave({
+  function buildPayload() {
+    return {
       invoice: {
-        contact_id:    contact.id,
-        issue_date:    form.issue_date,
-        due_date:      form.due_date || null,
-        payment_terms: form.payment_terms,
-        tax_rate:      parseFloat(form.tax_rate) || 0,
-        subtotal:      subtotalMinor,
-        tax_amount:    taxMinor,
+        contact_id:      contact.id,
+        issue_date:      form.issue_date,
+        due_date:        form.due_date || null,
+        payment_terms:   form.payment_terms,
+        tax_rate:        parseFloat(form.tax_rate) || 0,
+        subtotal:        subtotalMinor,
+        tax_amount:      taxMinor,
         discount_amount: 0,
-        total_amount:  totalMinor,
-        notes:         form.notes || null,
-        footer:        form.footer || null,
+        total_amount:    totalMinor,
+        notes:           form.notes || null,
+        footer:          form.footer || null,
         currency,
       },
       lineItems: validItems.map((it, i) => ({
@@ -788,7 +788,7 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
         line_total:  lineAmounts[form.items.indexOf(it)],
         sort_order:  i,
       })),
-    });
+    };
   }
 
   const STEPS = ["Client", "Items", "Review"];
@@ -1008,10 +1008,22 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact }) 
               Continue <ChevronRight size={15} />
             </button>
           ) : (
-            <button onClick={handleSave}
-              className="flex-1 bg-green-500 hover:bg-green-600 text-white rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-colors">
-              <FileText size={15} /> Save as Draft
-            </button>
+            <div className="flex-1 flex flex-col gap-2">
+              {/* Primary: Save & Send */}
+              <button
+                onClick={() => onSave(buildPayload(), { sendImmediately: true })}
+                disabled={isSaving}
+                className="w-full bg-green-500 hover:bg-green-600 text-white rounded-xl py-2.5 text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                <Send size={14} /> {isSaving ? "Saving…" : "Save & Send"}
+              </button>
+              {/* Secondary: Save as Draft */}
+              <button
+                onClick={() => onSave(buildPayload(), { sendImmediately: false })}
+                disabled={isSaving}
+                className="w-full border border-gray-200 text-gray-600 hover:bg-gray-50 rounded-xl py-2 text-sm font-medium flex items-center justify-center gap-2 transition-colors disabled:opacity-50">
+                <FileText size={13} /> Save as Draft
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -1154,12 +1166,30 @@ export default function Invoicing() {
     });
   }
 
-  function handleSaveInvoice(payload) {
+  function handleSaveInvoice(payload, { sendImmediately = false } = {}) {
     createMut.mutate(payload, {
       onSuccess: (inv) => {
-        setShowBuilder(false);
-        setSelectedId(inv.id);
-        showToast(`${inv.invoice_number} created as draft.`);
+        if (sendImmediately) {
+          sentMut.mutate(
+            { id: inv.id },
+            {
+              onSuccess: () => {
+                setShowBuilder(false);
+                setSelectedId(inv.id);
+                showToast(`${inv.invoice_number} created and sent. Revenue recorded.`);
+              },
+              onError: (e) => {
+                setShowBuilder(false);
+                setSelectedId(inv.id);
+                showToast(`${inv.invoice_number} saved — but send failed: ${e.message}`, "error");
+              },
+            }
+          );
+        } else {
+          setShowBuilder(false);
+          setSelectedId(inv.id);
+          showToast(`${inv.invoice_number} saved as draft.`);
+        }
       },
       onError: (e) => showToast(e.message, "error"),
     });
@@ -1207,6 +1237,7 @@ export default function Invoicing() {
           onClose={() => setShowBuilder(false)}
           onSave={handleSaveInvoice}
           onNeedContact={() => setShowAddContact(true)}
+          isSaving={createMut.isPending || sentMut.isPending}
         />
       )}
 
