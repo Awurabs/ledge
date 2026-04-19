@@ -114,7 +114,7 @@ function AddBillModal({ onClose, currency }) {
         bill_date:   form.billDate,
         due_date:    form.dueDate || null,
         amount:      Math.round(parseFloat(form.amount || "0") * 100),
-        description: form.description || null,
+        notes:       form.description || null,
         status:      "pending",
       });
 
