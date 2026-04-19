@@ -3,8 +3,9 @@ import {
   Search, X, CheckCircle, ChevronRight, ArrowDownLeft, ArrowUpRight,
   Upload, Landmark, Plug, AlertCircle, FileSpreadsheet, Smartphone,
 } from "lucide-react";
-import { useTransactions, useUpdateTransaction, useTransactionCategories } from "../hooks/useTransactions";
+import { useTransactions, useUpdateTransaction, useTransactionCategories, useImportTransactions } from "../hooks/useTransactions";
 import { useBankAccounts, useCreateBankAccount } from "../hooks/useBankAccounts";
+import { parseStatementFile, detectMapping, mapToTransactions } from "../lib/parseStatement";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -166,81 +167,324 @@ function PassPanel({ txn, categories, currency, onClose, onConfirm }) {
   );
 }
 
-// ── Upload Bank Statement Modal ────────────────────────────────────────────────
+// ── Upload Bank Statement Modal (multi-step) ──────────────────────────────────
+const COL_OPTIONS = ["— ignore —", "Date", "Description", "Debit", "Credit", "Amount"];
+
 function UploadStatementModal({ onClose, bankAccounts }) {
+  const importMut    = useImportTransactions();
   const fileInputRef = useRef(null);
-  const [file, setFile]         = useState(null);
+
+  // step: 'select' | 'parsing' | 'map' | 'preview' | 'done'
+  const [step,      setStep]      = useState("select");
+  const [file,      setFile]      = useState(null);
   const [accountId, setAccountId] = useState(bankAccounts[0]?.id ?? "");
-  const [dragOver, setDragOver] = useState(false);
+  const [dragOver,  setDragOver]  = useState(false);
+  const [error,     setError]     = useState("");
+  const [parsed,    setParsed]    = useState(null);
+  const [headers,   setHeaders]   = useState([]);
+  const [colMap,    setColMap]    = useState({});
+  const [preview,   setPreview]   = useState([]);
+  const [selected,  setSelected]  = useState({});
+  const [imageUrl,  setImageUrl]  = useState(null);
+  const [imported,  setImported]  = useState(0);
 
   function pickFile(f) {
     if (!f) return;
-    setFile(f);
+    setFile(f); setError("");
+    const ext = f.name.split(".").pop().toLowerCase();
+    if (["jpg","jpeg","png"].includes(ext)) setImageUrl(URL.createObjectURL(f));
+    else setImageUrl(null);
   }
+
+  async function handleParse() {
+    if (!file)      { setError("Please select a file."); return; }
+    if (!accountId) { setError("Please select a bank account."); return; }
+    setError(""); setStep("parsing");
+    try {
+      const result = await parseStatementFile(file);
+      setParsed(result);
+      if (result.type === "structured") {
+        setHeaders(result.headers);
+        const m = result.mapping;
+        const init = {};
+        result.headers.forEach((_, i) => {
+          if (i === m.date)             init[i] = "Date";
+          else if (i === m.description) init[i] = "Description";
+          else if (i === m.debit)       init[i] = "Debit";
+          else if (i === m.credit)      init[i] = "Credit";
+          else if (i === m.amount)      init[i] = "Amount";
+          else                          init[i] = "— ignore —";
+        });
+        setColMap(init); setStep("map");
+      } else if (result.type === "pdf_parsed") {
+        buildPreview(result.transactions);
+      } else if (result.type === "image") {
+        setStep("map");
+      } else {
+        setError("Could not extract transactions. Try exporting as CSV from your bank's app.");
+        setStep("select");
+      }
+    } catch (err) {
+      setError(err?.message ?? "Failed to parse file."); setStep("select");
+    }
+  }
+
+  function handleApplyMapping() {
+    const m = { date: null, description: null, debit: null, credit: null, amount: null };
+    Object.entries(colMap).forEach(([idx, label]) => {
+      const i = parseInt(idx);
+      if (label === "Date")        m.date        = i;
+      if (label === "Description") m.description = i;
+      if (label === "Debit")       m.debit       = i;
+      if (label === "Credit")      m.credit      = i;
+      if (label === "Amount")      m.amount      = i;
+    });
+    if (m.date === null)        { setError("Please mark a Date column."); return; }
+    if (m.description === null) { setError("Please mark a Description column."); return; }
+    if (m.amount === null && m.debit === null && m.credit === null) {
+      setError("Please mark at least one amount column (Debit, Credit, or Amount)."); return;
+    }
+    setError(""); buildPreview(mapToTransactions(parsed.rows, m));
+  }
+
+  function buildPreview(txns) {
+    setPreview(txns);
+    setSelected(Object.fromEntries(txns.map((_, i) => [i, true])));
+    setStep("preview");
+  }
+
+  async function handleImport() {
+    const rows = preview.filter((_, i) => selected[i]).map(t => ({ ...t, bank_account_id: accountId }));
+    if (!rows.length) { setError("No transactions selected."); return; }
+    setError("");
+    try {
+      await importMut.mutateAsync(rows);
+      setImported(rows.length); setStep("done");
+    } catch (err) {
+      setError(err?.message ?? "Import failed. Please try again.");
+    }
+  }
+
+  const selectedCount = Object.values(selected).filter(Boolean).length;
+  const titles = { select: "Upload Bank Statement", parsing: "Reading file…", map: "Map Columns", preview: "Preview Transactions", done: "Import Complete" };
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">Upload Bank Statement</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Import transactions from a CSV or Excel export</p>
+            <h3 className="text-base font-semibold text-gray-900">{titles[step]}</h3>
+            {step === "select"  && <p className="text-xs text-gray-500 mt-0.5">CSV, Excel, PDF, JPG or PNG</p>}
+            {step === "map" && parsed?.type === "structured" && <p className="text-xs text-gray-500 mt-0.5">We've made our best guess — adjust if needed</p>}
+            {step === "preview" && <p className="text-xs text-gray-500 mt-0.5">{preview.length} transaction{preview.length !== 1 ? "s" : ""} found — uncheck any you don't want</p>}
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+          {step !== "parsing" && <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>}
         </div>
 
-        {/* Bank account selector */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
-          <select
-            value={accountId}
-            onChange={e => setAccountId(e.target.value)}
-            className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-green-500"
-          >
-            <option value="">Select account…</option>
-            {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+          {error && (
+            <div className="flex items-center gap-2 mb-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+              <AlertCircle size={13} className="shrink-0" />{error}
+            </div>
+          )}
+
+          {/* SELECT */}
+          {step === "select" && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account <span className="text-red-400">*</span></label>
+                <select value={accountId} onChange={e => setAccountId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
+                  <option value="">Select account…</option>
+                  {bankAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ofx,.qfx,.pdf,.jpg,.jpeg,.png"
+                className="hidden" onChange={e => pickFile(e.target.files?.[0])} />
+              {file ? (
+                <div className="flex items-center gap-2 border border-green-200 bg-green-50 rounded-lg px-3 py-3">
+                  <FileSpreadsheet size={16} className="text-green-600 shrink-0" />
+                  <span className="text-sm text-green-700 truncate flex-1">{file.name}</span>
+                  <button onClick={() => { setFile(null); setImageUrl(null); }} className="text-green-500 hover:text-green-700"><X size={14} /></button>
+                </div>
+              ) : (
+                <div onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]); }}
+                  className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                    dragOver ? "border-green-400 bg-green-50" : "border-gray-300 hover:border-green-400"
+                  }`}>
+                  <Upload size={24} className="mx-auto text-gray-400 mb-2" />
+                  <p className="text-sm text-gray-600">Drop your statement here or <span className="text-green-600 font-medium">browse</span></p>
+                  <p className="text-xs text-gray-400 mt-1">CSV · Excel · PDF · JPG · PNG</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* PARSING */}
+          {step === "parsing" && (
+            <div className="py-12 text-center">
+              <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+              <p className="text-sm font-medium text-gray-700">Reading {file?.name}…</p>
+              <p className="text-xs text-gray-400 mt-1">Extracting transactions</p>
+            </div>
+          )}
+
+          {/* MAP — structured (CSV / Excel / PDF) */}
+          {step === "map" && parsed?.type === "structured" && (
+            <div>
+              <div className="border border-gray-200 rounded-lg overflow-hidden mb-3">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left text-xs font-semibold text-gray-500 px-4 py-2.5 w-1/2">Column in your file</th>
+                      <th className="text-left text-xs font-semibold text-gray-500 px-4 py-2.5 w-1/2">Maps to</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {headers.map((h, i) => (
+                      <tr key={i} className="border-b border-gray-100 last:border-0">
+                        <td className="px-4 py-2.5 text-gray-700 font-medium truncate max-w-xs">{h || `Column ${i+1}`}</td>
+                        <td className="px-4 py-2.5">
+                          <select value={colMap[i] ?? "— ignore —"} onChange={e => setColMap(m => ({ ...m, [i]: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
+                            {COL_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {parsed.rows?.[0] && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-400 font-medium mb-1">First data row (preview)</p>
+                  <p className="text-xs text-gray-600 font-mono truncate">
+                    {parsed.rows[0].map((c, i) => `${headers[i] || `C${i}`}: ${c}`).join("  ·  ")}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* MAP — image */}
+          {step === "map" && parsed?.type === "image" && (
+            <div>
+              {imageUrl && <img src={imageUrl} alt="statement" className="w-full rounded-lg border border-gray-200 mb-4 max-h-64 object-contain bg-gray-50" />}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-2">
+                <AlertCircle size={14} className="text-amber-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Image statements need manual review</p>
+                  <p className="text-xs text-amber-700 mt-1">
+                    AI-powered image parsing is coming soon. For now, export your statement as CSV or PDF from your bank's app and re-upload.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PREVIEW */}
+          {step === "preview" && (
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs text-gray-500">{selectedCount} of {preview.length} selected</p>
+                <div className="flex gap-3">
+                  <button onClick={() => setSelected(Object.fromEntries(preview.map((_,i)=>[i,true])))}
+                    className="text-xs text-green-600 hover:underline">Select all</button>
+                  <button onClick={() => setSelected(Object.fromEntries(preview.map((_,i)=>[i,false])))}
+                    className="text-xs text-gray-400 hover:underline">Deselect all</button>
+                </div>
+              </div>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="w-8 px-3 py-2.5" />
+                      <th className="text-left font-semibold text-gray-500 px-3 py-2.5">Date</th>
+                      <th className="text-left font-semibold text-gray-500 px-3 py-2.5">Description</th>
+                      <th className="text-right font-semibold text-gray-500 px-3 py-2.5">Amount</th>
+                      <th className="text-center font-semibold text-gray-500 px-3 py-2.5">Type</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((t, i) => (
+                      <tr key={i} onClick={() => setSelected(s => ({ ...s, [i]: !s[i] }))}
+                        className={`border-b border-gray-100 last:border-0 cursor-pointer transition-colors ${selected[i] ? "hover:bg-gray-50" : "opacity-40 bg-gray-50/60"}`}>
+                        <td className="px-3 py-2.5 text-center">
+                          <input type="checkbox" checked={!!selected[i]} onChange={() => {}} className="w-3.5 h-3.5 accent-green-500" />
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{t.txn_date}</td>
+                        <td className="px-3 py-2.5 text-gray-800 max-w-[200px] truncate">{t.description}</td>
+                        <td className={`px-3 py-2.5 text-right font-semibold tabular-nums ${t.direction === "credit" ? "text-green-600" : "text-gray-900"}`}>
+                          {t.direction === "credit" ? "+" : "-"}{(t.amount / 100).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full font-medium ${t.direction === "credit" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
+                            {t.direction}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* DONE */}
+          {step === "done" && (
+            <div className="py-10 text-center">
+              <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle size={28} className="text-green-500" />
+              </div>
+              <p className="text-lg font-semibold text-gray-900">{imported} transaction{imported !== 1 ? "s" : ""} imported</p>
+              <p className="text-sm text-gray-500 mt-1">They're in your list, marked Pending Review — categorise them to pass to Books</p>
+            </div>
+          )}
         </div>
 
-        {/* File drop zone */}
-        <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls,.ofx,.qfx,.pdf,.jpg,.jpeg,.png" className="hidden"
-          onChange={e => pickFile(e.target.files?.[0])} />
-
-        {file ? (
-          <div className="flex items-center gap-2 border border-green-200 bg-green-50 rounded-lg px-3 py-3 mb-4">
-            <FileSpreadsheet size={16} className="text-green-600 shrink-0" />
-            <span className="text-sm text-green-700 truncate flex-1">{file.name}</span>
-            <button onClick={() => setFile(null)} className="text-green-500 hover:text-green-700 shrink-0"><X size={14} /></button>
-          </div>
-        ) : (
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0]); }}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors mb-4 ${
-              dragOver ? "border-green-400 bg-green-50" : "border-gray-300 hover:border-green-400"
-            }`}
-          >
-            <Upload size={24} className="mx-auto text-gray-400 mb-2" />
-            <p className="text-sm text-gray-600">Drop your statement here or <span className="text-green-600 font-medium">browse</span></p>
-            <p className="text-xs text-gray-400 mt-1">CSV, Excel, OFX, QFX, PDF, JPG, PNG</p>
-          </div>
-        )}
-
-        <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 flex items-start gap-2 mb-5">
-          <AlertCircle size={13} className="text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700">Statement import is coming soon. CSV, Excel, PDF and image uploads will all be processed automatically once this feature is live.</p>
-        </div>
-
-        <div className="flex gap-3">
-          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
-          <button
-            disabled
-            className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium opacity-50 cursor-not-allowed"
-          >
-            Import Transactions
-          </button>
+        {/* Footer */}
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3 shrink-0">
+          {step === "select" && (
+            <>
+              <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+              <button onClick={handleParse} disabled={!file || !accountId}
+                className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-40">
+                Continue
+              </button>
+            </>
+          )}
+          {step === "map" && parsed?.type === "structured" && (
+            <>
+              <button onClick={() => { setStep("select"); setError(""); }}
+                className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Back</button>
+              <button onClick={handleApplyMapping}
+                className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600">
+                Preview Transactions
+              </button>
+            </>
+          )}
+          {step === "map" && parsed?.type === "image" && (
+            <button onClick={onClose} className="w-full border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Close</button>
+          )}
+          {step === "preview" && (
+            <>
+              <button onClick={() => { setStep(parsed?.type === "pdf_parsed" ? "select" : "map"); setError(""); }}
+                className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Back</button>
+              <button onClick={handleImport} disabled={importMut.isPending || selectedCount === 0}
+                className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-40">
+                {importMut.isPending ? "Importing…" : `Import ${selectedCount} Transaction${selectedCount !== 1 ? "s" : ""}`}
+              </button>
+            </>
+          )}
+          {step === "done" && (
+            <button onClick={onClose} className="w-full bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600">Done</button>
+          )}
         </div>
       </div>
     </div>

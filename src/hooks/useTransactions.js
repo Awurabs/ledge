@@ -72,6 +72,29 @@ export function useCreateTransaction() {
   });
 }
 
+export function useImportTransactions() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (rows) => {
+      // rows = [{ txn_date, description, amount, direction, bank_account_id }]
+      const payload = rows.map((r) => ({
+        ...r,
+        organization_id: orgId,
+        source: "import",
+        status: r.status ?? "pending",
+      }));
+      const { data, error } = await supabase
+        .from("transactions")
+        .insert(payload)
+        .select();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["transactions", orgId] }),
+  });
+}
+
 export function useTransactionCategories() {
   const { orgId } = useAuth();
   return useQuery({
