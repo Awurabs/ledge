@@ -519,8 +519,8 @@ export default function MonthEndClose() {
         .from("revenue_records")
         .select("amount")
         .eq("organization_id", orgId)
-        .gte("received_date", range.from)
-        .lte("received_date", range.to);
+        .gte("revenue_date", range.from)
+        .lte("revenue_date", range.to);
       if (error) throw error;
       return (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
     },
@@ -532,13 +532,13 @@ export default function MonthEndClose() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("expenses")
-        .select("total_amount")
+        .select("amount")
         .eq("organization_id", orgId)
-        .in("status", ["approved", "reimbursed"])
+        .not("status", "eq", "rejected")
         .gte("expense_date", range.from)
         .lte("expense_date", range.to);
       if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + (r.total_amount ?? 0), 0);
+      return (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
     },
   });
 
