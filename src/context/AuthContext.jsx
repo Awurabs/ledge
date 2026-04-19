@@ -39,6 +39,37 @@ export function AuthProvider({ children }) {
       ]);
 
       setProfile(profileData ?? null);
+
+      // If user is authenticated but has no org membership, check for a
+      // pending org setup that was stashed during email-confirmation signup.
+      if (!memberData) {
+        const pending = localStorage.getItem("pending_org_setup");
+        if (pending) {
+          try {
+            const { orgName, fullName } = JSON.parse(pending);
+            const { error: rpcErr } = await supabase.rpc("setup_new_organization", {
+              p_org_name:  orgName,
+              p_full_name: fullName,
+            });
+            if (!rpcErr) {
+              localStorage.removeItem("pending_org_setup");
+              // Re-fetch membership now that the org exists
+              const { data: freshMember } = await supabase
+                .from("organization_members")
+                .select("id, role, organization_id, organizations(id, name, slug, base_currency, logo_url)")
+                .eq("user_id", userId)
+                .is("deactivated_at", null)
+                .limit(1)
+                .maybeSingle();
+              setMembership(freshMember ?? null);
+              return;
+            }
+          } catch (_) {
+            // If auto-setup fails, leave membership null — user can retry
+          }
+        }
+      }
+
       setMembership(memberData ?? null);
     } catch (err) {
       // Network hang, timeout, or Supabase error — proceed without profile data.

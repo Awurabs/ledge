@@ -51,8 +51,12 @@ export default function Signup() {
       });
       if (signUpError) throw signUpError;
 
-      // 2a. If email confirmation required → show confirm screen
+      // 2a. If email confirmation required → stash org details for post-confirm login
       if (!data.session) {
+        localStorage.setItem(
+          "pending_org_setup",
+          JSON.stringify({ orgName: form.orgName.trim(), fullName: form.fullName.trim() })
+        );
         setStep("confirm");
         return;
       }
