@@ -4,7 +4,7 @@ import {
   Upload, Landmark, Plug, AlertCircle, FileSpreadsheet, Smartphone,
 } from "lucide-react";
 import { useTransactions, useUpdateTransaction, useTransactionCategories } from "../hooks/useTransactions";
-import { useBankAccounts } from "../hooks/useBankAccounts";
+import { useBankAccounts, useCreateBankAccount } from "../hooks/useBankAccounts";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -248,25 +248,82 @@ function UploadStatementModal({ onClose, bankAccounts }) {
 }
 
 // ── Add Bank / MoMo Wallet Modal ───────────────────────────────────────────────
+const GHANA_BANKS = [
+  "Absa Bank Ghana Limited",
+  "Access Bank Ghana Plc",
+  "Agricultural Development Bank of Ghana (ADB)",
+  "Bank of Africa Ghana Limited",
+  "CalBank PLC",
+  "Consolidated Bank Ghana Limited (CBG)",
+  "Ecobank Ghana Limited",
+  "FBN Bank (Ghana) Limited",
+  "Fidelity Bank Ghana Limited",
+  "First Atlantic Bank Limited",
+  "First National Bank Ghana Limited (FNB)",
+  "GCB Bank Limited",
+  "Guaranty Trust Bank (Ghana) Limited",
+  "National Investment Bank Limited (NIB)",
+  "OmniBSIC Bank Ghana Limited",
+  "Prudential Bank Limited",
+  "Republic Bank (Ghana) Limited",
+  "Société Générale Ghana Limited",
+  "Stanbic Bank Ghana Limited",
+  "Standard Chartered Bank Ghana Limited",
+  "United Bank for Africa (Ghana) Limited",
+  "Universal Merchant Bank Limited (UMB)",
+  "Zenith Bank (Ghana) Limited",
+];
+
+const MOMO_NETWORKS = ["MTN Mobile Money (MoMo)", "Telecel Cash (Vodafone Cash)", "AirtelTigo Money"];
+
+const ACCOUNT_COLORS = ["#10B981","#3B82F6","#F59E0B","#EF4444","#8B5CF6","#EC4899","#14B8A6","#F97316"];
+
+function slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+    + "-" + Math.random().toString(36).slice(2, 7);
+}
+
 function AddBankModal({ onClose }) {
-  const [form, setForm] = useState({ name: "", type: "bank", accountNumber: "", bank: "", currency: "GHS" });
+  const createMut = useCreateBankAccount();
+  const [form, setForm] = useState({
+    name: "", type: "bank", institution: "", accountNumber: "", currency: "GHS",
+    color: ACCOUNT_COLORS[0],
+  });
+  const [error, setError] = useState("");
 
-  const ACCOUNT_TYPES = [
-    { value: "bank",   label: "Bank Account",   icon: Landmark },
-    { value: "momo",   label: "Mobile Money",   icon: Smartphone },
-  ];
+  async function handleSubmit() {
+    setError("");
+    if (!form.name.trim())    { setError("Account name is required."); return; }
+    if (!form.institution)    { setError(`Please select a ${form.type === "momo" ? "network" : "bank"}.`); return; }
 
-  const BANKS = [
-    "GCB Bank", "Ecobank Ghana", "Absa Bank Ghana", "Standard Chartered Ghana",
-    "Fidelity Bank Ghana", "Stanbic Bank Ghana", "Access Bank Ghana",
-    "CalBank", "Republic Bank Ghana", "UBA Ghana",
-  ];
+    // mask account number — keep last 4 digits only
+    const masked = form.accountNumber.replace(/\s/g, "").slice(-4)
+      ? "•••• " + form.accountNumber.replace(/\s/g, "").slice(-4)
+      : null;
 
-  const NETWORKS = ["MTN MoMo", "Vodafone Cash", "AirtelTigo Money"];
+    try {
+      await createMut.mutateAsync({
+        name:                 form.name.trim(),
+        slug:                 slugify(form.name.trim()),
+        type:                 form.type === "momo" ? "mobile_money" : "bank",
+        institution_name:     form.institution,
+        account_number_masked: masked,
+        currency:             form.currency,
+        color:                form.color,
+        is_active:            true,
+        is_default:           false,
+      });
+      onClose();
+    } catch (err) {
+      setError(err?.message ?? "Failed to add account. Please try again.");
+    }
+  }
+
+  const institutions = form.type === "momo" ? MOMO_NETWORKS : GHANA_BANKS;
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-base font-semibold text-gray-900">Add Bank / MoMo Wallet</h3>
@@ -275,14 +332,18 @@ function AddBankModal({ onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
+        {error && (
+          <div className="flex items-center gap-2 mb-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            <AlertCircle size={13} className="shrink-0" />{error}
+          </div>
+        )}
+
         {/* Account type toggle */}
         <div className="grid grid-cols-2 gap-2 mb-4">
-          {ACCOUNT_TYPES.map(({ value, label, icon: Icon }) => (
-            <button key={value} onClick={() => setForm(f => ({ ...f, type: value }))}
+          {[{ value: "bank", label: "Bank Account", Icon: Landmark }, { value: "momo", label: "Mobile Money", Icon: Smartphone }].map(({ value, label, Icon }) => (
+            <button key={value} onClick={() => setForm(f => ({ ...f, type: value, institution: "" }))}
               className={`flex items-center justify-center gap-2 py-2.5 rounded-lg border-2 text-sm font-medium transition-all ${
-                form.type === value
-                  ? "border-green-500 bg-green-50 text-green-700"
-                  : "border-gray-200 text-gray-600 hover:border-green-300"
+                form.type === value ? "border-green-500 bg-green-50 text-green-700" : "border-gray-200 text-gray-600 hover:border-green-300"
               }`}>
               <Icon size={15} /> {label}
             </button>
@@ -290,6 +351,7 @@ function AddBankModal({ onClose }) {
         </div>
 
         <div className="space-y-3">
+          {/* Account name */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Account Name <span className="text-red-400">*</span></label>
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
@@ -297,26 +359,30 @@ function AddBankModal({ onClose }) {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
           </div>
 
+          {/* Bank / Network */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {form.type === "momo" ? "Network" : "Bank"} <span className="text-red-400">*</span>
             </label>
-            <select value={form.bank} onChange={e => setForm(f => ({ ...f, bank: e.target.value }))}
+            <select value={form.institution} onChange={e => setForm(f => ({ ...f, institution: e.target.value }))}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-1 focus:ring-green-500">
               <option value="">Select {form.type === "momo" ? "network" : "bank"}…</option>
-              {(form.type === "momo" ? NETWORKS : BANKS).map(b => <option key={b} value={b}>{b}</option>)}
+              {institutions.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
 
+          {/* Account / phone number */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {form.type === "momo" ? "Phone Number" : "Account Number"}
+              {form.type === "momo" ? "Phone Number" : "Account Number"} <span className="text-gray-400 font-normal text-xs">(optional)</span>
             </label>
             <input value={form.accountNumber} onChange={e => setForm(f => ({ ...f, accountNumber: e.target.value }))}
               placeholder={form.type === "momo" ? "e.g. 0244 000 000" : "e.g. 1234567890"}
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500" />
+            <p className="text-xs text-gray-400 mt-1">Only the last 4 digits are stored for display</p>
           </div>
 
+          {/* Currency */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
             <select value={form.currency} onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
@@ -324,17 +390,25 @@ function AddBankModal({ onClose }) {
               {["GHS", "USD", "GBP", "EUR", "NGN"].map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
+
+          {/* Color picker */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Account Colour</label>
+            <div className="flex gap-2 flex-wrap">
+              {ACCOUNT_COLORS.map(c => (
+                <button key={c} onClick={() => setForm(f => ({ ...f, color: c }))}
+                  className={`w-7 h-7 rounded-full border-2 transition-all ${form.color === c ? "border-gray-800 scale-110" : "border-transparent"}`}
+                  style={{ background: c }} />
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5 flex items-start gap-2 mt-4 mb-5">
-          <AlertCircle size={13} className="text-amber-500 mt-0.5 shrink-0" />
-          <p className="text-xs text-amber-700">Direct bank linking is coming soon. For now, use Upload Bank Statement to import transactions manually.</p>
-        </div>
-
-        <div className="flex gap-3">
+        <div className="flex gap-3 mt-5">
           <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
-          <button disabled className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium opacity-50 cursor-not-allowed">
-            Add Account
+          <button onClick={handleSubmit} disabled={createMut.isPending}
+            className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-50">
+            {createMut.isPending ? "Adding…" : "Add Account"}
           </button>
         </div>
       </div>
