@@ -10,6 +10,11 @@
 
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
+import * as pdfjsLib from "pdfjs-dist";
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
+// Point PDF.js at the locally-bundled worker (avoids CDN version mismatch)
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 // ── Column-name dictionaries ───────────────────────────────────────────────────
 const DATE_HINTS  = ["date", "txn date", "transaction date", "value date",
@@ -163,10 +168,7 @@ function parseExcel(file) {
 
 // ── PDF ────────────────────────────────────────────────────────────────────────
 async function parsePDF(file) {
-  // Load pdfjs lazily — worker served from cdnjs to avoid Vite bundling issues
-  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+  // pdfjsLib and worker are imported statically at the top of this file
 
   const buf  = await file.arrayBuffer();
   const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
