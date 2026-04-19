@@ -23,7 +23,7 @@ function SourceBadge({ source }) {
 }
 
 // ── Normalise all three sources ────────────────────────────────────────────────
-const BILL_STATUS = { paid:"reimbursed", void:"rejected", scheduled:"approved", pending_approval:"submitted", draft:"draft" };
+const BILL_STATUS = { paid:"reimbursed", void:"rejected", scheduled:"approved", pending:"submitted", inbox:"draft", draft:"draft", overdue:"submitted" };
 const REIMB_STATUS = { paid:"reimbursed", approved:"approved", rejected:"rejected", submitted:"submitted" };
 
 function normalise(expenses, bills, reimbursements) {
