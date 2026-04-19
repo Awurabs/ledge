@@ -48,7 +48,7 @@ const navGroups = [
       { label: "P&L",             path: "/books",             icon: TrendingUp },
       { label: "Balance Sheet",   path: "/balance-sheet",     icon: Scale },
       { label: "Month-End Close", path: "/month-end-close",   icon: CalendarCheck },
-      { label: "Adjustments",     path: "/adjust",            icon: SlidersHorizontal },
+      { label: "Journal Adjustments", path: "/adjust",         icon: SlidersHorizontal },
       { label: "Chart of Accounts", path: "/chart-of-accounts", icon: BookOpen },
     ],
   },

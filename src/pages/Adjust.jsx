@@ -135,7 +135,7 @@ function AccountDropdown({ label, value, onChange, accounts }) {
                   key={a.id}
                   className="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer"
                   onClick={() => {
-                    onChange({ id: a.id, code: a.code, name: a.name });
+                    onChange({ id: a.id, code: a.code, name: a.name, type: a.type });
                     setOpen(false);
                     setQuery("");
                   }}
@@ -256,9 +256,55 @@ function WizardStep3({ form, setForm }) {
   );
 }
 
-function WizardStep4({ form, selectedType }) {
+// direction: +1 = increases, -1 = decreases, 0 = no effect
+function accountImpact(accountType, side /* "debit" | "credit" */) {
+  const debitNormal  = ["asset", "expense"];
+  const creditNormal = ["liability", "equity", "revenue"];
+  if (side === "debit")  return debitNormal.includes(accountType)  ?  1 : -1;
+  if (side === "credit") return creditNormal.includes(accountType) ?  1 : -1;
+  return 0;
+}
+
+function ImpactLine({ label, direction, amount }) {
+  if (direction === 0) return (
+    <div className="flex justify-between text-sm">
+      <span className="text-gray-600">{label}</span>
+      <span className="tabular-nums text-gray-400">No change</span>
+    </div>
+  );
+  const color = direction > 0 ? "text-green-600" : "text-red-500";
+  const sign  = direction > 0 ? "+" : "−";
+  return (
+    <div className="flex justify-between text-sm">
+      <span className="text-gray-600">{label}</span>
+      <span className={`tabular-nums font-medium ${color}`}>
+        {amount ? `${sign}${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : sign}
+      </span>
+    </div>
+  );
+}
+
+function WizardStep4({ form, selectedType, periods }) {
   const typeLabel = ADJUSTMENT_TYPES.find((t) => t.id === selectedType)?.label || "";
-  const amount = parseFloat(form.amount || "0");
+  const amount    = parseFloat(form.amount || "0");
+  const periodName = periods?.find((p) => p.id === form.periodId)?.name ?? (form.periodId || "—");
+
+  const dr = form.debitAccount?.type;
+  const cr = form.creditAccount?.type;
+
+  // Compute directional impact per category
+  const revenueDir    = (dr === "revenue" ? accountImpact("revenue",    "debit")  : 0)
+                      + (cr === "revenue" ? accountImpact("revenue",    "credit") : 0);
+  const expensesDir   = (dr === "expense" ? accountImpact("expense",    "debit")  : 0)
+                      + (cr === "expense" ? accountImpact("expense",    "credit") : 0);
+  const assetsDir     = (dr === "asset"   ? accountImpact("asset",      "debit")  : 0)
+                      + (cr === "asset"   ? accountImpact("asset",      "credit") : 0);
+  const liabsDir      = (dr === "liability" ? accountImpact("liability", "debit")  : 0)
+                      + (cr === "liability" ? accountImpact("liability", "credit") : 0);
+  const equityDir     = (dr === "equity"  ? accountImpact("equity",     "debit")  : 0)
+                      + (cr === "equity"  ? accountImpact("equity",     "credit") : 0);
+  // Net income: revenue up = good, expenses up = bad
+  const netDir = revenueDir - expensesDir;
 
   return (
     <div className="grid grid-cols-3 gap-6">
@@ -267,18 +313,18 @@ function WizardStep4({ form, selectedType }) {
         <table className="w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
           <tbody>
             {[
-              ["Type", typeLabel],
-              ["Debit Account", form.debitAccount ? `${form.debitAccount.code} – ${form.debitAccount.name}` : "—"],
+              ["Type",           typeLabel],
+              ["Debit Account",  form.debitAccount  ? `${form.debitAccount.code} – ${form.debitAccount.name}`  : "—"],
               ["Credit Account", form.creditAccount ? `${form.creditAccount.code} – ${form.creditAccount.name}` : "—"],
-              ["Amount", amount ? `${amount.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "—"],
-              ["Date", form.date || "—"],
-              ["Period", form.periodId || "—"],
-              ["Description", form.description || "—"],
-              ["Reference", form.reference || "—"],
+              ["Amount",         amount ? amount.toLocaleString("en-US", { minimumFractionDigits: 2 }) : "—"],
+              ["Date",           form.date        || "—"],
+              ["Period",         periodName],
+              ["Description",    form.description || "—"],
+              ["Reference",      form.reference   || "—"],
             ].map(([key, val]) => (
               <tr key={key} className="border-b border-gray-100 last:border-0">
                 <td className="px-4 py-2 text-gray-500 font-medium w-40">{key}</td>
-                <td className="px-4 py-2 text-gray-900 tabular-nums">{val}</td>
+                <td className="px-4 py-2 text-gray-900">{val}</td>
               </tr>
             ))}
           </tbody>
@@ -288,45 +334,21 @@ function WizardStep4({ form, selectedType }) {
         <h4 className="text-sm font-semibold text-gray-700 mb-3">Impact Preview</h4>
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">P&L Impact</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">P&L</p>
             <div className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Revenue</span>
-                <span className="tabular-nums text-gray-900">—</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Expenses</span>
-                <span className="tabular-nums text-red-500">
-                  {amount ? `+${amount.toLocaleString()}` : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm font-semibold border-t border-gray-200 pt-1 mt-1">
-                <span className="text-gray-700">Net Income</span>
-                <span className="tabular-nums text-red-500">
-                  {amount ? `-${amount.toLocaleString()}` : "—"}
-                </span>
+              <ImpactLine label="Revenue"    direction={revenueDir}  amount={amount} />
+              <ImpactLine label="Expenses"   direction={expensesDir} amount={amount} />
+              <div className="border-t border-gray-200 pt-1 mt-1">
+                <ImpactLine label="Net Income" direction={netDir}    amount={amount} />
               </div>
             </div>
           </div>
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Balance Sheet</p>
             <div className="space-y-1">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Assets</span>
-                <span className="tabular-nums text-gray-900">No change</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Liabilities</span>
-                <span className="tabular-nums text-green-600">
-                  {amount ? `+${amount.toLocaleString()}` : "—"}
-                </span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Equity</span>
-                <span className="tabular-nums text-red-500">
-                  {amount ? `-${amount.toLocaleString()}` : "—"}
-                </span>
-              </div>
+              <ImpactLine label="Assets"      direction={assetsDir}  amount={amount} />
+              <ImpactLine label="Liabilities" direction={liabsDir}   amount={amount} />
+              <ImpactLine label="Equity"      direction={equityDir}  amount={amount} />
             </div>
           </div>
         </div>
@@ -360,8 +382,8 @@ export default function Adjust() {
   const filteredEntries = searchQuery
     ? entries.filter(
         (e) =>
-          (e.memo ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (e.reference_number ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (e.description ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (e.reference ?? "").toLowerCase().includes(searchQuery.toLowerCase()) ||
           (e.type ?? "").toLowerCase().includes(searchQuery.toLowerCase())
       )
     : entries;
@@ -390,9 +412,10 @@ export default function Adjust() {
         entry: {
           type: selectedType,
           entry_date: form.date || new Date().toISOString().split("T")[0],
-          memo: form.description,
-          reference_number: form.reference || null,
+          description: form.description,
+          reference: form.reference || null,
           period_id: form.periodId || null,
+          currency: orgCurrency ?? "GHS",
           status: "posted",
         },
         lines: [
@@ -483,7 +506,7 @@ export default function Adjust() {
               )}
               {currentStep === 2 && <WizardStep3 form={form} setForm={setForm} />}
               {currentStep === 3 && (
-                <WizardStep4 form={form} selectedType={selectedType} />
+                <WizardStep4 form={form} selectedType={selectedType} periods={periods} />
               )}
             </div>
 
@@ -557,10 +580,10 @@ export default function Adjust() {
                             {entry.type?.replace(/_/g, " ") ?? "—"}
                           </td>
                           <td className="py-3 pr-4 text-gray-600 max-w-[200px] truncate">
-                            {entry.memo ?? "—"}
+                            {entry.description ?? "—"}
                           </td>
                           <td className="py-3 pr-4 text-gray-500 font-mono text-xs whitespace-nowrap">
-                            {entry.reference_number ?? "—"}
+                            {entry.reference ?? "—"}
                           </td>
                           <td className="py-3 pr-4 text-gray-900 font-medium tabular-nums whitespace-nowrap">
                             {amount > 0
