@@ -81,7 +81,9 @@ function AddBillModal({ onClose, currency }) {
     billNumber: "",
     billDate: today,
     dueDate: "",
+    scheduledPayDate: "",
     amount: "",
+    category: "",
     description: "",
   });
   const [creatingVendor, setCreatingVendor] = useState(false);
@@ -107,15 +109,20 @@ function AddBillModal({ onClose, currency }) {
         return;
       }
 
+      // If a scheduled payment date is provided, go straight to scheduled
+      const status = form.scheduledPayDate ? "scheduled" : "pending";
+
       await createBillMut.mutateAsync({
-        contact_id:  vendorId,
-        vendor_name: vendorName,
-        bill_number: form.billNumber || "",
-        bill_date:   form.billDate,
-        due_date:    form.dueDate || null,
-        amount:      Math.round(parseFloat(form.amount || "0") * 100),
-        notes:       form.description || null,
-        status:      "pending",
+        contact_id:         vendorId,
+        vendor_name:        vendorName,
+        bill_number:        form.billNumber || "",
+        bill_date:          form.billDate,
+        due_date:           form.dueDate           || null,
+        scheduled_pay_date: form.scheduledPayDate  || null,
+        amount:             Math.round(parseFloat(form.amount || "0") * 100),
+        category:           form.category.trim()   || null,
+        notes:              form.description       || null,
+        status,
       });
 
       onClose();
@@ -193,7 +200,7 @@ function AddBillModal({ onClose, currency }) {
             />
           </div>
 
-          {/* Dates */}
+          {/* Dates row 1: Bill Date + Due Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Bill Date</label>
@@ -213,6 +220,20 @@ function AddBillModal({ onClose, currency }) {
                 onChange={(e) => setForm((f) => ({ ...f, dueDate: e.target.value }))}
               />
             </div>
+          </div>
+
+          {/* Schedule Payment Date */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Schedule Payment Date
+              <span className="ml-1 text-xs font-normal text-gray-400">(optional — sets bill to Scheduled)</span>
+            </label>
+            <input
+              type="date"
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.scheduledPayDate}
+              onChange={(e) => setForm((f) => ({ ...f, scheduledPayDate: e.target.value }))}
+            />
           </div>
 
           {/* Amount */}
@@ -237,9 +258,27 @@ function AddBillModal({ onClose, currency }) {
             </div>
           </div>
 
-          {/* Description */}
+          {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <select
+              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+              value={form.category}
+              onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+            >
+              <option value="">Select category…</option>
+              {[
+                "Rent & Lease", "Utilities", "Telecom & Internet",
+                "Salaries & Wages", "Professional Services", "Insurance",
+                "Office Supplies", "Marketing & Advertising", "Transport & Logistics",
+                "Subscriptions & Software", "Repairs & Maintenance", "Taxes & Levies", "Other",
+              ].map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
             <textarea
               rows={2}
               className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-300 resize-none"
@@ -449,7 +488,7 @@ export default function Bills() {
                       </td>
                       <td className="px-3 py-3.5">
                         <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
-                          {bill.chart_of_accounts?.name ?? bill.category ?? "—"}
+                          {bill.category ?? bill.chart_of_accounts?.name ?? "—"}
                         </span>
                       </td>
                       <td className="px-3 py-3.5">
