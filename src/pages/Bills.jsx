@@ -88,12 +88,14 @@ function AddBillModal({ onClose, currency }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    let vendorId = form.vendorId;
+    let vendorId   = form.vendorId;
+    let vendorName = vendors.find((v) => v.id === vendorId)?.name ?? "";
 
     // Create vendor inline if needed
     if (creatingVendor && form.newVendorName.trim()) {
       const v = await createVendorMut.mutateAsync({ name: form.newVendorName.trim() });
-      vendorId = v.id;
+      vendorId   = v.id;
+      vendorName = v.name;
     }
 
     if (!vendorId) return;
@@ -101,7 +103,8 @@ function AddBillModal({ onClose, currency }) {
     createBillMut.mutate(
       {
         vendor_id:   vendorId,
-        bill_number: form.billNumber || null,
+        vendor_name: vendorName,             // snapshot — satisfies NOT NULL
+        bill_number: form.billNumber || "",  // auto-generated in hook if blank
         bill_date:   form.billDate,
         due_date:    form.dueDate || null,
         amount:      Math.round(parseFloat(form.amount || "0") * 100),

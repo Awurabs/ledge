@@ -88,14 +88,40 @@ export function useBills(filters = {}) {
   });
 }
 
+// Generate next sequential bill reference: BILL-2026-0001
+async function nextBillNumber(orgId) {
+  const year   = new Date().getFullYear();
+  const prefix = `BILL-${year}-`;
+  const { data } = await supabase
+    .from("bills")
+    .select("bill_number")
+    .eq("organization_id", orgId)
+    .like("bill_number", `${prefix}%`)
+    .order("bill_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (data?.bill_number) {
+    const last = parseInt(data.bill_number.replace(prefix, ""), 10);
+    return `${prefix}${String(last + 1).padStart(4, "0")}`;
+  }
+  return `${prefix}0001`;
+}
+
 export function useCreateBill() {
   const { orgId, user } = useAuth();
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (values) => {
+      // Auto-generate bill number if not supplied by user
+      const billNumber = values.bill_number?.trim() || await nextBillNumber(orgId);
       const { data, error } = await supabase
         .from("bills")
-        .insert({ ...values, organization_id: orgId, created_by: user?.id })
+        .insert({
+          ...values,
+          bill_number:     billNumber,
+          organization_id: orgId,
+          created_by:      user?.id,
+        })
         .select()
         .single();
       if (error) throw error;
