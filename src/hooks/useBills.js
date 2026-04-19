@@ -2,22 +2,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
-export function useCreateBillVendor() {
-  const { orgId, user } = useAuth();
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (values) => {
-      const { data, error } = await supabase
-        .from("bill_vendors")
-        .insert({ ...values, organization_id: orgId, created_by: user?.id, is_active: true })
-        .select()
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["bill_vendors", orgId] }),
-  });
-}
+// ── Vendors for Bills ─────────────────────────────────────────────────────────
+// Vendors live in the shared `contacts` table (type = 'vendor' | 'both').
+// This is the same table used by the Customers & Vendors page, so anything
+// added there appears here automatically.
 
 export function useBillVendors() {
   const { orgId } = useAuth();
@@ -26,17 +14,51 @@ export function useBillVendors() {
     enabled: !!orgId,
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("bill_vendors")
-        .select("*")
+        .from("contacts")
+        .select("id, name, email, phone, address, payment_terms, currency")
         .eq("organization_id", orgId)
         .eq("is_active", true)
         .is("deleted_at", null)
+        .or("type.eq.vendor,type.eq.both")
         .order("name");
       if (error) throw error;
       return data;
     },
   });
 }
+
+// Creates a vendor as a contact (type='vendor') so it shows up on both the
+// Customers & Vendors page and the Bills vendor dropdown.
+export function useCreateBillVendor() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ name, email, phone }) => {
+      const { data, error } = await supabase
+        .from("contacts")
+        .insert({
+          name,
+          email:           email  ?? null,
+          phone:           phone  ?? null,
+          type:            "vendor",
+          organization_id: orgId,
+          is_active:       true,
+          currency:        "GHS",
+          payment_terms:   "Net 30",
+        })
+        .select("id, name, email, phone")
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["bill_vendors", orgId] });
+      qc.invalidateQueries({ queryKey: ["contacts",     orgId] });
+    },
+  });
+}
+
+// ── Bills ─────────────────────────────────────────────────────────────────────
 
 export function useBillInbox() {
   const { orgId } = useAuth();
@@ -66,7 +88,7 @@ export function useBills(filters = {}) {
         .from("bills")
         .select(`
           *,
-          bill_vendors ( id, name, email, category ),
+          contact:contacts ( id, name, email, phone ),
           chart_of_accounts ( id, code, name ),
           approved_by_profile:profiles!approved_by ( id, full_name )
         `)
@@ -74,11 +96,11 @@ export function useBills(filters = {}) {
         .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
-      if (filters.status)   q = q.eq("status", filters.status);
-      if (filters.vendorId) q = q.eq("vendor_id", filters.vendorId);
-      if (filters.dateFrom) q = q.gte("bill_date", filters.dateFrom);
-      if (filters.dateTo)   q = q.lte("bill_date", filters.dateTo);
-      if (filters.overdue)  q = q.lt("due_date", new Date().toISOString().slice(0, 10))
+      if (filters.status)    q = q.eq("status", filters.status);
+      if (filters.contactId) q = q.eq("contact_id", filters.contactId);
+      if (filters.dateFrom)  q = q.gte("bill_date", filters.dateFrom);
+      if (filters.dateTo)    q = q.lte("bill_date", filters.dateTo);
+      if (filters.overdue)   q = q.lt("due_date", new Date().toISOString().slice(0, 10))
                                    .not("status", "in", '("paid","void")');
 
       const { data, error } = await q;
@@ -112,7 +134,6 @@ export function useCreateBill() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (values) => {
-      // Auto-generate bill number if not supplied by user
       const billNumber = values.bill_number?.trim() || await nextBillNumber(orgId);
       const { data, error } = await supabase
         .from("bills")
@@ -128,7 +149,7 @@ export function useCreateBill() {
       return data;
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["bills", orgId] });
+      qc.invalidateQueries({ queryKey: ["bills",     orgId] });
       qc.invalidateQueries({ queryKey: ["bill_inbox", orgId] });
     },
   });

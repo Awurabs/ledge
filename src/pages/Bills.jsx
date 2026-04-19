@@ -102,8 +102,8 @@ function AddBillModal({ onClose, currency }) {
 
     createBillMut.mutate(
       {
-        vendor_id:   vendorId,
-        vendor_name: vendorName,             // snapshot — satisfies NOT NULL
+        contact_id:  vendorId,               // FK → contacts(id)
+        vendor_name: vendorName,             // snapshot for display
         bill_number: form.billNumber || "",  // auto-generated in hook if blank
         bill_date:   form.billDate,
         due_date:    form.dueDate || null,
@@ -407,7 +407,7 @@ export default function Bills() {
               </thead>
               <tbody>
                 {bills.map((bill, i) => {
-                  const vendor   = bill.bill_vendors;
+                  const vendor   = bill.contact;
                   const status   = bill.status ?? "pending";
                   const isPending  = status === "pending";
                   const isOverdue  = status === "overdue";
@@ -433,7 +433,7 @@ export default function Bills() {
                       </td>
                       <td className="px-3 py-3.5">
                         <span className="text-xs text-gray-600 bg-gray-100 rounded-full px-2.5 py-1">
-                          {vendor?.category ?? bill.chart_of_accounts?.name ?? "—"}
+                          {bill.chart_of_accounts?.name ?? bill.category ?? "—"}
                         </span>
                       </td>
                       <td className="px-3 py-3.5">
