@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Plus, TrendingUp, CheckCircle, Clock, DollarSign,
   ChevronDown, X, ArrowUpRight, Banknote, Smartphone,
-  CreditCard, Landmark, ChevronRight,
+  CreditCard, Landmark, ChevronRight, Search,
 } from "lucide-react";
 import { useRevenue, useCreateRevenue } from "../hooks/useRevenue";
 import { useTransactionCategories } from "../hooks/useTransactions";
+import { useContacts } from "../hooks/useContacts";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -15,10 +16,10 @@ function Skeleton({ className = "" }) {
 }
 
 const PAYMENT_METHODS = [
-  { id: "bank",   label: "Bank Transfer", icon: Landmark },
-  { id: "momo",   label: "Mobile Money",  icon: Smartphone },
-  { id: "cash",   label: "Cash",          icon: Banknote },
-  { id: "pos",    label: "POS / Card",    icon: CreditCard },
+  { id: "bank_transfer",  label: "Bank Transfer", icon: Landmark },
+  { id: "mobile_money",   label: "Mobile Money",  icon: Smartphone },
+  { id: "cash",           label: "Cash",          icon: Banknote },
+  { id: "pos_card",       label: "POS / Card",    icon: CreditCard },
 ];
 
 const statusConfig = {
@@ -37,27 +38,40 @@ function StatusPill({ status }) {
 }
 
 // ── Record Revenue Panel ────────────────────────────────────────────────────────
-function RecordPanel({ categories, currency, onClose, onSave }) {
+function RecordPanel({ categories, customers, currency, onClose, onSave }) {
   const [step, setStep] = useState(1);
   const [category, setCategory] = useState(null);
-  const [form, setForm] = useState({ payer: "", amount: "", date: "", method: "", note: "" });
+  const [form, setForm] = useState({
+    payer: "", clientId: null,
+    amount: "", date: "", methodId: "", note: "",
+  });
+  const [payerSearch, setPayerSearch] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const payerRef = useRef(null);
   const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const revCats = categories.filter((c) => c.type === "revenue");
+  const revCats      = categories.filter((c) => c.type === "revenue");
+  const methodLabel  = PAYMENT_METHODS.find((m) => m.id === form.methodId)?.label ?? "";
+  const filteredCust = customers.filter((c) =>
+    c.name.toLowerCase().includes(payerSearch.toLowerCase())
+  );
 
-  const amountNum     = parseFloat(form.amount.replace(/,/g, "")) || 0;
-  const amountMinor   = Math.round(amountNum * 100);
-  const canGoStep2    = !!category;
-  const canGoStep3    = form.payer.trim() && form.amount.trim() && form.date && form.method;
+  const amountNum   = parseFloat(form.amount.replace(/,/g, "")) || 0;
+  const amountMinor = Math.round(amountNum * 100);
+  const canGoStep2  = !!category;
+  const canGoStep3  = form.payer.trim() && form.amount.trim() && form.date && form.methodId;
 
   function handleSave() {
     onSave({
       payer_name:     form.payer,
+      client_id:      form.clientId ?? null,
       amount:         amountMinor,
       revenue_date:   form.date,
       status:         "received",
-      payment_method: form.method,
-      note:           form.note,
+      payment_method: form.methodId,
+      currency:       currency,
+      ref_number:     "REV-" + Date.now(),
+      note:           form.note || null,
       category_id:    category.id,
     });
   }
@@ -139,13 +153,65 @@ function RecordPanel({ categories, currency, onClose, onSave }) {
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Payer / Source <span className="text-red-400">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={form.payer}
-                  onChange={(e) => upd("payer", e.target.value)}
-                  placeholder="Customer or payer name"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+                <div className="relative">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input
+                      ref={payerRef}
+                      type="text"
+                      value={payerSearch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setPayerSearch(v);
+                        upd("payer", v);
+                        upd("clientId", null);
+                        setShowDropdown(true);
+                      }}
+                      onFocus={() => setShowDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                      placeholder="Search customer or type a name…"
+                      className="w-full border border-gray-300 rounded-md pl-8 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    />
+                  </div>
+                  {showDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-44 overflow-y-auto">
+                      {filteredCust.length > 0 ? (
+                        filteredCust.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onMouseDown={() => {
+                              setPayerSearch(c.name);
+                              upd("payer", c.name);
+                              upd("clientId", c.id);
+                              setShowDropdown(false);
+                            }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left hover:bg-green-50 hover:text-green-800 transition-colors"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-xs font-bold text-green-700 shrink-0">
+                              {c.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-medium truncate">{c.name}</p>
+                              {c.email && <p className="text-xs text-gray-400 truncate">{c.email}</p>}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2.5 text-xs text-gray-400">
+                          {payerSearch.trim()
+                            ? `No customers match "${payerSearch}" — will be saved as typed`
+                            : "No customers yet. Type a name to continue."}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {form.clientId && (
+                    <p className="mt-1 text-xs text-green-600 flex items-center gap-1">
+                      <CheckCircle size={11} /> Linked to existing customer
+                    </p>
+                  )}
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -177,16 +243,17 @@ function RecordPanel({ categories, currency, onClose, onSave }) {
                 <div className="grid grid-cols-2 gap-2">
                   {PAYMENT_METHODS.map((m) => {
                     const Icon = m.icon;
+                    const active = form.methodId === m.id;
                     return (
                       <button
                         key={m.id}
-                        onClick={() => upd("method", m.label)}
+                        onClick={() => upd("methodId", m.id)}
                         className={`flex items-center gap-2 p-2.5 rounded-lg border-2 text-left transition-all ${
-                          form.method === m.label ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
+                          active ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-gray-300"
                         }`}
                       >
-                        <Icon size={14} className={form.method === m.label ? "text-green-600" : "text-gray-400"} />
-                        <span className={`text-xs font-medium ${form.method === m.label ? "text-green-800" : "text-gray-700"}`}>
+                        <Icon size={14} className={active ? "text-green-600" : "text-gray-400"} />
+                        <span className={`text-xs font-medium ${active ? "text-green-800" : "text-gray-700"}`}>
                           {m.label}
                         </span>
                       </button>
@@ -220,7 +287,7 @@ function RecordPanel({ categories, currency, onClose, onSave }) {
                   { label: "Payer",          value: form.payer },
                   { label: "Date Received",  value: form.date },
                   { label: "Category",       value: `${category?.emoji ?? "💰"} ${category?.name}` },
-                  { label: "Payment Method", value: form.method },
+                  { label: "Payment Method", value: methodLabel },
                   { label: "Note",           value: form.note || "—" },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex items-center justify-between py-2.5">
@@ -277,6 +344,7 @@ export default function Revenue() {
 
   const { data: records = [], isLoading } = useRevenue();
   const { data: categories = [] }         = useTransactionCategories();
+  const { data: customers = [] }          = useContacts({ type: "customer" });
   const createMut = useCreateRevenue();
 
   const tabs = ["all", "received", "pending", "partial"];
@@ -536,6 +604,7 @@ export default function Revenue() {
       {showPanel && (
         <RecordPanel
           categories={categories}
+          customers={customers}
           currency={currency}
           onClose={() => setShowPanel(false)}
           onSave={handleSave}

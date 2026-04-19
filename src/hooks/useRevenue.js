@@ -13,7 +13,7 @@ export function useRevenue(filters = {}) {
         .select(`
           *,
           transaction_categories ( id, name, emoji ),
-          clients ( id, name ),
+          contacts ( id, name ),
           invoices ( id, invoice_number )
         `)
         .eq("organization_id", orgId)
