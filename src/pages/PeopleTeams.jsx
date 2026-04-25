@@ -9,6 +9,7 @@ import {
   useUpdateMember, useDeactivateMember, useReactivateMember,
   useCreateDepartment, useUpdateDepartment, useDeleteDepartment,
   useCreateTeam, useAddTeamMember, useRemoveTeamMember,
+  useInviteMember,
 } from "../hooks/useMembers";
 import { useCards } from "../hooks/useCards";
 import { fmtDate } from "../lib/fmt";
@@ -53,13 +54,19 @@ function Avatar({ name = "", size = "md", className = "" }) {
 }
 
 // ── Role badge ─────────────────────────────────────────────────────────────────
+// Values must match the org_role postgres enum:
+// owner | admin | finance_lead | accountant | employee | viewer
 const ROLE_MAP = {
-  admin:   { color: "bg-red-100 text-red-700",      label: "Admin"   },
-  finance: { color: "bg-green-100 text-green-700",  label: "Finance" },
-  manager: { color: "bg-purple-100 text-purple-700",label: "Manager" },
-  member:  { color: "bg-blue-100 text-blue-700",    label: "Member"  },
-  viewer:  { color: "bg-gray-100 text-gray-600",    label: "Viewer"  },
+  owner:        { color: "bg-purple-100 text-purple-700", label: "Owner"        },
+  admin:        { color: "bg-red-100 text-red-700",       label: "Admin"        },
+  finance_lead: { color: "bg-green-100 text-green-700",   label: "Finance Lead" },
+  accountant:   { color: "bg-blue-100 text-blue-700",     label: "Accountant"   },
+  employee:     { color: "bg-gray-100 text-gray-600",     label: "Employee"     },
+  viewer:       { color: "bg-gray-100 text-gray-400",     label: "Viewer"       },
 };
+
+// Roles available when inviting (owner is not invitable)
+const INVITABLE_ROLES = ["admin", "finance_lead", "accountant", "employee", "viewer"];
 
 function RoleBadge({ role = "" }) {
   const r = ROLE_MAP[role?.toLowerCase()] ?? ROLE_MAP.member;
@@ -220,7 +227,7 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
                     className="w-full border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
                   >
                     {Object.entries(ROLE_MAP).map(([v, { label }]) => (
-                      <option key={v} value={v}>{label}</option>
+                      <option key={v} value={v} disabled={v === "owner"}>{label}</option>
                     ))}
                   </select>
                 </div>
@@ -305,8 +312,22 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
 // INVITE MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 function InviteModal({ departments, onClose }) {
-  const [form, setForm] = useState({ name: "", email: "", role: "member", department_id: "" });
-  const [sent, setSent] = useState(false);
+  const [form, setForm] = useState({ email: "", role: "employee", department_id: "" });
+  const [sent, setSent]   = useState(false);
+  const [errMsg, setErrMsg] = useState("");
+  const inviteMut = useInviteMember();
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    setErrMsg("");
+    inviteMut.mutate(
+      { email: form.email, role: form.role, department_id: form.department_id || null },
+      {
+        onSuccess: () => setSent(true),
+        onError:   (err) => setErrMsg(err.message ?? "Something went wrong. Please try again."),
+      },
+    );
+  }
 
   if (sent) {
     return (
@@ -317,7 +338,8 @@ function InviteModal({ departments, onClose }) {
           </div>
           <h3 className="text-lg font-bold text-gray-900 mb-1">Invite Sent!</h3>
           <p className="text-sm text-gray-500 mb-6">
-            An invitation has been sent to <strong>{form.email}</strong>.
+            An invitation email has been sent to <strong>{form.email}</strong>.
+            They'll click the link to set up their account and will be added to your org automatically.
           </p>
           <button
             onClick={onClose}
@@ -336,22 +358,12 @@ function InviteModal({ departments, onClose }) {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Invite Employee</h3>
-            <p className="text-xs text-gray-400 mt-0.5">They'll receive an email with setup instructions.</p>
+            <p className="text-xs text-gray-400 mt-0.5">They'll receive an email with a sign-up link.</p>
           </div>
           <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); setSent(true); }} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-            <input
-              required
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="Jane Doe"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-            />
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
             <input
@@ -371,8 +383,8 @@ function InviteModal({ departments, onClose }) {
                 onChange={e => setForm(f => ({ ...f, role: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
               >
-                {Object.entries(ROLE_MAP).map(([v, { label }]) => (
-                  <option key={v} value={v}>{label}</option>
+                {INVITABLE_ROLES.map(v => (
+                  <option key={v} value={v}>{ROLE_MAP[v].label}</option>
                 ))}
               </select>
             </div>
@@ -390,6 +402,11 @@ function InviteModal({ departments, onClose }) {
               </select>
             </div>
           </div>
+
+          {errMsg && (
+            <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{errMsg}</p>
+          )}
+
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -400,9 +417,10 @@ function InviteModal({ departments, onClose }) {
             </button>
             <button
               type="submit"
-              className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600"
+              disabled={inviteMut.isPending}
+              className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-70"
             >
-              Send Invite
+              {inviteMut.isPending ? "Sending…" : "Send Invite"}
             </button>
           </div>
         </form>

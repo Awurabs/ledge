@@ -218,3 +218,17 @@ export function useRemoveTeamMember() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["teams", orgId] }),
   });
 }
+
+// ── Invite ───────────────────────────────────────────────────────────────────
+export function useInviteMember() {
+  return useMutation({
+    mutationFn: async ({ email, role, department_id }) => {
+      const { data, error } = await supabase.functions.invoke("invite-member", {
+        body: { email, role, department_id: department_id || null },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+  });
+}
