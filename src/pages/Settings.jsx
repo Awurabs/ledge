@@ -16,6 +16,7 @@ import {
   useCreateDepartment, useUpdateDepartment, useDeleteDepartment,
 } from "../hooks/useMembers";
 import { useIntegrations, useDisconnectIntegration } from "../hooks/useIntegrations";
+import { useSaasPlans, useSubscribePlan } from "../hooks/useSubscription";
 import { useAuth } from "../context/AuthContext";
 import { fmt } from "../lib/fmt";
 
@@ -1279,21 +1280,112 @@ function IntegrationsTab() {
 
 // ── Billing Tab ───────────────────────────────────────────────────────────────
 
+const STATUS_CFG = {
+  trialing:  { cls: "bg-blue-100 text-blue-700",   label: "Trialing"  },
+  active:    { cls: "bg-green-100 text-green-700", label: "Active"    },
+  past_due:  { cls: "bg-amber-100 text-amber-700", label: "Past due"  },
+  cancelled: { cls: "bg-gray-100 text-gray-500",   label: "Cancelled" },
+  paused:    { cls: "bg-gray-100 text-gray-500",   label: "Paused"    },
+};
+
+function fmtDateLong(d) {
+  return d ? new Date(d).toLocaleDateString("en-GH", { month: "short", day: "numeric", year: "numeric" }) : "—";
+}
+
+function planFeatures(plan) {
+  return [
+    plan.max_members ? `${plan.max_members} ${plan.max_members === 1 ? "user" : "users"}` : "Unlimited users",
+    plan.dedicated_accountants > 0
+      ? `${plan.dedicated_accountants} dedicated accountant${plan.dedicated_accountants > 1 ? "s" : ""}`
+      : null,
+    plan.max_transactions_pm ? `${plan.max_transactions_pm.toLocaleString()} transactions / month` : "Unlimited transactions",
+    plan.max_cards ? `${plan.max_cards} cards` : "Unlimited cards",
+    plan.has_ai_copilot   && "Ledge AI access",
+    plan.has_api_access   && "API access",
+    plan.has_custom_roles && "Custom roles",
+  ].filter(Boolean);
+}
+
+// One plan card in the picker
+function PlanCard({ plan, isCurrent, isHighlighted, onSubscribe, busy, busyForId, disableReason }) {
+  const features = planFeatures(plan);
+  const price = (plan.price_monthly_usd_cents ?? 0) / 100;
+  const isBusyHere = busy && busyForId === plan.id;
+
+  return (
+    <div
+      className={`relative bg-white rounded-xl border-2 shadow-sm p-5 flex flex-col ${
+        isHighlighted ? "border-green-500" : "border-gray-200"
+      }`}
+    >
+      {isHighlighted && (
+        <span className="absolute -top-2.5 left-5 bg-green-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide">
+          Most popular
+        </span>
+      )}
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide capitalize">
+          {plan.tier}
+        </p>
+        <p className="text-lg font-bold text-gray-900 mt-0.5">{plan.name}</p>
+        <p className="mt-3">
+          <span className="text-3xl font-bold tabular-nums text-gray-900">${price.toFixed(0)}</span>
+          <span className="text-sm font-normal text-gray-500"> / month</span>
+        </p>
+      </div>
+
+      <ul className="space-y-2 mt-5 mb-5 flex-1">
+        {features.map((f) => (
+          <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+            <Check size={14} className="text-green-500 shrink-0 mt-0.5" />
+            <span>{f}</span>
+          </li>
+        ))}
+      </ul>
+
+      {isCurrent ? (
+        <button
+          disabled
+          className="w-full bg-gray-100 text-gray-500 text-sm font-semibold py-2 rounded-lg cursor-default"
+        >
+          Current plan
+        </button>
+      ) : (
+        <button
+          onClick={() => onSubscribe(plan)}
+          disabled={busy || !!disableReason}
+          title={disableReason ?? undefined}
+          className={`w-full text-sm font-semibold py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+            isHighlighted
+              ? "bg-green-500 hover:bg-green-600 text-white"
+              : "border border-gray-200 hover:bg-gray-50 text-gray-800"
+          }`}
+        >
+          {isBusyHere ? "Processing…" : "Subscribe"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function BillingTab() {
-  const { data: org, isLoading } = useOrganization();
+  const { myRole } = useAuth();
+  const { data: org, isLoading: orgLoading }   = useOrganization();
+  const { data: plans = [], isLoading: plansLoading } = useSaasPlans();
+  const subscribeMut = useSubscribePlan();
 
   const subscription = org?.org_subscriptions?.[0];
-  const plan = subscription?.saas_plans;
+  const currentPlan  = subscription?.saas_plans;
+  const statusCfg    = STATUS_CFG[subscription?.status] ?? STATUS_CFG.trialing;
 
-  const STATUS_CFG = {
-    trialing:  { cls: "bg-blue-100 text-blue-700",     label: "Trialing"  },
-    active:    { cls: "bg-green-100 text-green-700",   label: "Active"    },
-    past_due:  { cls: "bg-amber-100 text-amber-700",   label: "Past due"  },
-    cancelled: { cls: "bg-gray-100 text-gray-500",     label: "Cancelled" },
-  };
-  const statusCfg = STATUS_CFG[subscription?.status] ?? STATUS_CFG.trialing;
+  const isOwner = myRole === "owner";
+  const paystackKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+  const paystackConfigured = !!paystackKey;
 
-  if (isLoading) {
+  const [busyPlanId, setBusyPlanId] = useState(null);
+
+  if (orgLoading || plansLoading) {
     return (
       <Card>
         <Skeleton className="h-6 w-40 mb-4" />
@@ -1302,116 +1394,135 @@ function BillingTab() {
     );
   }
 
-  const priceMonthlyCents = plan?.price_monthly_usd_cents ?? 0;
-  const priceMonthly = priceMonthlyCents / 100;
+  const handleSubscribe = (plan) => {
+    setBusyPlanId(plan.id);
+    subscribeMut.mutate(
+      { plan },
+      {
+        onSettled: () => setBusyPlanId(null),
+      },
+    );
+  };
 
-  const features = [
-    plan?.max_members && `Up to ${plan.max_members} members`,
-    plan?.max_transactions_pm && `${plan.max_transactions_pm.toLocaleString()} transactions / month`,
-    plan?.max_cards && `${plan.max_cards} cards`,
-    plan?.has_ai_copilot && "Ledge AI access",
-    plan?.has_api_access && "API access",
-    plan?.has_custom_roles && "Custom roles",
-  ].filter(Boolean);
+  // Default highlight = Growth (or whichever the user is on)
+  const highlightedTier = currentPlan?.tier ?? "growth";
 
-  const fmtDate = (d) =>
-    d ? new Date(d).toLocaleDateString("en-GH", { month: "short", day: "numeric", year: "numeric" }) : "—";
+  // Reasons we'd block the subscribe button
+  let disableReason = null;
+  if (!isOwner) disableReason = "Only the org owner can manage billing";
+  else if (!paystackConfigured) disableReason = "Paystack public key is not set in .env";
 
   return (
     <div className="space-y-6">
+
+      {/* Current plan card */}
       <Card>
         <SectionHeader
-          title="Subscription"
-          description="Your current plan and billing period."
+          title="Current subscription"
+          description={
+            currentPlan
+              ? "Your active LedgeSuite plan."
+              : "You're not on a paid plan yet — pick one below to get started."
+          }
           action={
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold capitalize ${statusCfg.cls}`}>
-              {statusCfg.label}
-            </span>
+            subscription && (
+              <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${statusCfg.cls}`}>
+                {statusCfg.label}
+              </span>
+            )
           }
         />
 
-        {!plan ? (
-          <div className="text-center py-10">
+        {!currentPlan ? (
+          <div className="text-center py-8">
             <CreditCard size={28} className="text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-500 mb-1">No active subscription</p>
-            <p className="text-xs text-gray-400">
-              You're currently using LedgeSuite without a plan.
-            </p>
+            <p className="text-sm text-gray-500">No active subscription</p>
           </div>
         ) : (
-          <>
-            <div className="flex items-end justify-between mb-6">
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{plan.tier}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-0.5">{plan.name}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold tabular-nums text-gray-900">
-                  ${priceMonthly.toFixed(0)}
-                </p>
-                <p className="text-xs text-gray-500">per month</p>
-              </div>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Plan</p>
+              <p className="text-base font-bold text-gray-900 mt-1">{currentPlan.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                ${((currentPlan.price_monthly_usd_cents ?? 0) / 100).toFixed(0)} / month
+              </p>
             </div>
-
-            {features.length > 0 && (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-6">
-                {features.map((f) => (
-                  <div key={f} className="flex items-center gap-2 text-sm text-gray-700">
-                    <Check size={13} className="text-green-500 shrink-0" />
-                    {f}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-3 gap-4 pt-5 border-t border-gray-100">
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Period start</p>
-                <p className="text-sm font-medium text-gray-900 mt-1">
-                  {fmtDate(subscription.current_period_start)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Period end</p>
-                <p className="text-sm font-medium text-gray-900 mt-1">
-                  {fmtDate(subscription.current_period_end)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Billing email</p>
-                <p className="text-sm font-medium text-gray-900 mt-1 truncate">
-                  {subscription.billing_email ?? "—"}
-                </p>
-              </div>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Period ends</p>
+              <p className="text-sm font-medium text-gray-900 mt-1">
+                {fmtDateLong(subscription.current_period_end)}
+              </p>
             </div>
-          </>
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Billing email</p>
+              <p className="text-sm font-medium text-gray-900 mt-1 truncate">
+                {subscription.billing_email ?? "—"}
+              </p>
+            </div>
+          </div>
         )}
       </Card>
 
+      {/* Plan picker */}
       <Card>
         <SectionHeader
-          title="Need to change your plan?"
-          description="Upgrade, downgrade, or cancel your subscription. We'll prorate any changes."
+          title="Choose a plan"
+          description="All plans are billed monthly in USD via Paystack. Upgrade or switch any time."
         />
-        <div className="flex gap-2">
-          <button
-            disabled
-            className="bg-green-500 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
-            title="Coming soon"
-          >
-            Manage plan
-          </button>
-          <button
-            disabled
-            className="border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
-            title="Coming soon"
-          >
-            View invoices
-          </button>
-        </div>
-        <p className="text-xs text-gray-400 mt-3">
-          Self-serve plan management is coming soon. Contact support@ledgesuite.com for changes.
-        </p>
+
+        {plans.length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-8">No plans available</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {plans.map((p) => (
+              <PlanCard
+                key={p.id}
+                plan={p}
+                isCurrent={currentPlan?.id === p.id && subscription?.status === "active"}
+                isHighlighted={p.tier === highlightedTier}
+                onSubscribe={handleSubscribe}
+                busy={subscribeMut.isPending}
+                busyForId={busyPlanId}
+                disableReason={
+                  currentPlan?.id === p.id && subscription?.status === "active"
+                    ? null
+                    : disableReason
+                }
+              />
+            ))}
+          </div>
+        )}
+
+        {!isOwner && (
+          <p className="text-xs text-gray-400 mt-4">
+            Only the org owner can change the billing plan.
+          </p>
+        )}
+
+        {!paystackConfigured && (
+          <div className="mt-4 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Paystack isn't configured</p>
+              <p className="text-xs mt-0.5">
+                Add <code className="font-mono bg-amber-100 px-1 rounded">VITE_PAYSTACK_PUBLIC_KEY</code> to
+                your <code className="font-mono bg-amber-100 px-1 rounded">.env</code> and set{" "}
+                <code className="font-mono bg-amber-100 px-1 rounded">PAYSTACK_SECRET_KEY</code> in
+                Supabase → Edge Functions → Secrets to enable checkout.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {subscribeMut.error && (
+          <div className="mt-4 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold">Couldn't complete subscription</p>
+              <p className="text-xs text-red-600 mt-0.5">{subscribeMut.error.message}</p>
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
