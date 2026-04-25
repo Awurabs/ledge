@@ -35,15 +35,13 @@ export function useDepartments() {
     queryKey: ["departments", orgId],
     enabled: !!orgId,
     queryFn: async () => {
+      // NOTE: the manager_id FK uses a non-standard constraint name
+      // (`fk_dept_manager`) which makes the embedded manager join unreliable
+      // through PostgREST. Fetch departments flat; manager name (if needed)
+      // can be looked up separately via useMembers.
       const { data, error } = await supabase
         .from("departments")
-        .select(`
-          *,
-          manager:organization_members!manager_id (
-            id,
-            profiles ( id, full_name )
-          )
-        `)
+        .select("*")
         .eq("organization_id", orgId)
         .order("name");
       if (error) throw error;

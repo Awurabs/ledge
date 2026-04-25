@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   User, Building2, Users, Briefcase, Calculator,
   FileText, Bell, Plug, CreditCard,
@@ -617,9 +617,25 @@ function DepartmentsTab() {
   const currency = orgCurrency ?? "GHS";
 
   const { data: departments = [], isLoading } = useDepartments();
+  const { data: members = [] }                = useMembers();
   const createDept = useCreateDepartment();
   const updateDept = useUpdateDepartment();
   const deleteDept = useDeleteDepartment();
+
+  // Lookup manager name by member id (since useDepartments returns flat rows)
+  const managerById = useMemo(() => {
+    const m = {};
+    for (const mem of members) {
+      m[mem.id] = mem.profiles?.full_name ?? null;
+    }
+    return m;
+  }, [members]);
+
+  const mutationError =
+    createDept.error?.message ||
+    updateDept.error?.message ||
+    deleteDept.error?.message ||
+    null;
 
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -672,6 +688,16 @@ function DepartmentsTab() {
           )
         }
       />
+
+      {mutationError && (
+        <div className="mb-4 flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold">Couldn't save changes</p>
+            <p className="text-xs text-red-600 mt-0.5">{mutationError}</p>
+          </div>
+        </div>
+      )}
 
       {(adding || editingId) && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
@@ -745,7 +771,7 @@ function DepartmentsTab() {
             </thead>
             <tbody>
               {departments.map((d) => {
-                const managerName = d.manager?.profiles?.full_name ?? "—";
+                const managerName = managerById[d.manager_id] ?? "—";
                 return (
                   <tr key={d.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">{d.name}</td>
