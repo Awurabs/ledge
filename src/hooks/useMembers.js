@@ -109,3 +109,64 @@ export function useDeactivateMember() {
       updateMember.mutateAsync({ id, deactivated_at: new Date().toISOString() }),
   });
 }
+
+export function useReactivateMember() {
+  const updateMember = useUpdateMember();
+  return useMutation({
+    mutationFn: ({ id }) =>
+      updateMember.mutateAsync({ id, deactivated_at: null }),
+  });
+}
+
+// ── Department CRUD ──────────────────────────────────────────────────────────
+export function useCreateDepartment() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (values) => {
+      const { data, error } = await supabase
+        .from("departments")
+        .insert({ ...values, organization_id: orgId })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["departments", orgId] }),
+  });
+}
+
+export function useUpdateDepartment() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...values }) => {
+      const { data, error } = await supabase
+        .from("departments")
+        .update(values)
+        .eq("id", id)
+        .eq("organization_id", orgId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["departments", orgId] }),
+  });
+}
+
+export function useDeleteDepartment() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase
+        .from("departments")
+        .delete()
+        .eq("id", id)
+        .eq("organization_id", orgId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["departments", orgId] }),
+  });
+}

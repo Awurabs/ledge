@@ -1,445 +1,1447 @@
 import { useState, useEffect } from "react";
-import { Building2, Shield, CreditCard, FileText, Check, AlertCircle, Plus, Edit2 } from "lucide-react";
+import {
+  User, Building2, Users, Briefcase, Calculator,
+  FileText, Bell, Plug, CreditCard,
+  Check, AlertCircle, Plus, Trash2, LogOut,
+  ExternalLink, Pencil,
+} from "lucide-react";
 import {
   useOrganization, useUpdateOrganization,
   useOrgSettings, useUpdateOrgSettings,
+  useProfile, useUpdateProfile,
 } from "../hooks/useOrg";
+import {
+  useMembers, useDepartments, useUpdateMember,
+  useDeactivateMember, useReactivateMember,
+  useCreateDepartment, useUpdateDepartment, useDeleteDepartment,
+} from "../hooks/useMembers";
+import { useIntegrations, useDisconnectIntegration } from "../hooks/useIntegrations";
+import { useAuth } from "../context/AuthContext";
+import { fmt } from "../lib/fmt";
 
-// ── Skeleton ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const TABS = [
+  { id: "profile",       label: "Profile",       icon: User       },
+  { id: "organization",  label: "Organization",  icon: Building2  },
+  { id: "team",          label: "Team",          icon: Users      },
+  { id: "departments",   label: "Departments",   icon: Briefcase  },
+  { id: "finance",       label: "Finance",       icon: Calculator },
+  { id: "invoicing",     label: "Invoicing",     icon: FileText   },
+  { id: "notifications", label: "Notifications", icon: Bell       },
+  { id: "integrations",  label: "Integrations",  icon: Plug       },
+  { id: "billing",       label: "Billing",       icon: CreditCard },
+];
+
+const COUNTRIES = [
+  { code: "GH", name: "Ghana" },
+  { code: "NG", name: "Nigeria" },
+  { code: "KE", name: "Kenya" },
+  { code: "ZA", name: "South Africa" },
+  { code: "UG", name: "Uganda" },
+  { code: "TZ", name: "Tanzania" },
+  { code: "RW", name: "Rwanda" },
+  { code: "ET", name: "Ethiopia" },
+  { code: "EG", name: "Egypt" },
+  { code: "MA", name: "Morocco" },
+  { code: "US", name: "United States" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "DE", name: "Germany" },
+];
+
+const CURRENCIES = [
+  { code: "GHS", name: "Ghanaian Cedi" },
+  { code: "NGN", name: "Nigerian Naira" },
+  { code: "KES", name: "Kenyan Shilling" },
+  { code: "ZAR", name: "South African Rand" },
+  { code: "USD", name: "US Dollar" },
+  { code: "GBP", name: "Pound Sterling" },
+  { code: "EUR", name: "Euro" },
+];
+
+const TIMEZONES = [
+  "Africa/Accra", "Africa/Lagos", "Africa/Nairobi", "Africa/Johannesburg",
+  "Africa/Kampala", "Africa/Cairo", "Africa/Casablanca",
+  "Etc/UTC", "America/New_York", "Europe/London", "Europe/Berlin",
+];
+
+const MONTHS = [
+  "January","February","March","April","May","June",
+  "July","August","September","October","November","December",
+];
+
+const ROLES = [
+  { value: "owner",    label: "Owner"    },
+  { value: "admin",    label: "Admin"    },
+  { value: "manager",  label: "Manager"  },
+  { value: "employee", label: "Employee" },
+];
+
+const ROLE_BADGE = {
+  owner:    "bg-purple-100 text-purple-700",
+  admin:    "bg-blue-100 text-blue-700",
+  manager:  "bg-amber-100 text-amber-700",
+  employee: "bg-gray-100 text-gray-600",
+};
+
+// ── Primitives ────────────────────────────────────────────────────────────────
+
 function Skeleton({ className = "" }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
 }
 
-// ── Nav tabs ───────────────────────────────────────────────────────────────────
-const TABS = [
-  { id: "company",  label: "Company",          icon: Building2 },
-  { id: "policies", label: "Spend Policies",   icon: Shield    },
-  { id: "tax",      label: "Tax & Accounting", icon: FileText  },
-  { id: "security", label: "Security",         icon: Shield    },
-  { id: "billing",  label: "Billing",          icon: CreditCard },
-];
-
-// ── Static policies (no DB table for spend policies yet) ──────────────────────
-const STATIC_POLICIES = [
-  {
-    id: 1, name: "Travel Policy",
-    text: "Single-trip travel expenses may not exceed GH₵ 1,500 without Finance Lead approval. International travel requires 48-hour advance notice.",
-    condition: "Travel expense", operator: "exceeds", value: "GH₵ 1,500", action: "Require Finance Lead approval",
-  },
-  {
-    id: 2, name: "Meals & Entertainment",
-    text: "Meal expenses are capped at GH₵ 75 per person. Team events require manager approval for groups over 8 people.",
-    condition: "Meals expense per person", operator: "exceeds", value: "GH₵ 75", action: "Flag for review",
-  },
-  {
-    id: 3, name: "Reimbursements",
-    text: "Employee reimbursement requests must include a valid receipt and be submitted within 30 days of purchase.",
-    condition: "Reimbursement submitted", operator: "is", value: "missing receipt", action: "Block submission",
-  },
-];
-
-const LOGIN_HISTORY = [
-  { date: "Apr 16, 2026 10:42 AM", device: "MacBook Pro",  location: "Accra, GH", ip: "197.251.x.x", status: "Success" },
-  { date: "Apr 15, 2026 08:15 AM", device: "iPhone 15",    location: "Accra, GH", ip: "197.251.x.x", status: "Success" },
-  { date: "Apr 14, 2026 07:58 AM", device: "MacBook Pro",  location: "Accra, GH", ip: "197.251.x.x", status: "Success" },
-  { date: "Apr 13, 2026 11:22 PM", device: "Unknown",      location: "Lagos, NG", ip: "105.112.x.x", status: "Blocked" },
-];
-
-// ── Company Tab ────────────────────────────────────────────────────────────────
-function CompanyTab() {
-  const { data: org, isLoading } = useOrganization();
-  const updateOrg = useUpdateOrganization();
-  const [form, setForm] = useState(null);
-
-  useEffect(() => {
-    if (org && !form) {
-      setForm({
-        name:        org.name        ?? "",
-        industry:    org.industry    ?? "",
-        size:        org.size        ?? "",
-        country:     org.country     ?? "",
-        currency:    org.currency    ?? "",
-        timezone:    org.timezone    ?? "",
-        admin_email: org.admin_email ?? "",
-        phone:       org.phone       ?? "",
-        address:     org.address     ?? "",
-      });
-    }
-  }, [org]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
-
-  if (isLoading) return (
-    <div className="space-y-3">
-      {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
+function Card({ children, className = "" }) {
+  return (
+    <div className={`bg-white rounded-xl border border-gray-200 shadow-sm p-6 ${className}`}>
+      {children}
     </div>
   );
+}
 
-  const f = form ?? {};
+function SectionHeader({ title, description, action }) {
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Company Information</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            ["Company Name", "name"],
-            ["Industry",     "industry"],
-            ["Company Size", "size"],
-            ["Country",      "country"],
-            ["Currency",     "currency"],
-            ["Timezone",     "timezone"],
-          ].map(([label, field]) => (
-            <div key={field}>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-              <input
-                value={f[field] ?? ""}
-                onChange={set(field)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-              />
-            </div>
-          ))}
-        </div>
+    <div className="flex items-start justify-between gap-4 mb-5">
+      <div>
+        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+        {description && <p className="text-sm text-gray-500 mt-0.5">{description}</p>}
       </div>
+      {action}
+    </div>
+  );
+}
 
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Contact Details</h3>
-        <div className="grid grid-cols-2 gap-4">
-          {[
-            ["Admin Email", "admin_email", false],
-            ["Phone",       "phone",       false],
-            ["Address",     "address",     true ],
-          ].map(([label, field, full]) => (
-            <div key={field} className={full ? "col-span-2" : ""}>
-              <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-              <input
-                value={f[field] ?? ""}
-                onChange={set(field)}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-              />
-            </div>
-          ))}
-        </div>
-      </div>
+function Field({ label, hint, children, full = false }) {
+  return (
+    <div className={full ? "col-span-2" : ""}>
+      <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">
+        {label}
+      </label>
+      {children}
+      {hint && <p className="text-xs text-gray-400 mt-1">{hint}</p>}
+    </div>
+  );
+}
 
+const inputCls =
+  "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500";
+
+function Toggle({ checked, onChange, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={() => !disabled && onChange(!checked)}
+      disabled={disabled}
+      className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-300 focus:ring-offset-2 ${
+        checked ? "bg-green-500" : "bg-gray-300"
+      } disabled:opacity-50`}
+    >
+      <span
+        className={`absolute top-1 inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
+
+function SaveButton({ onClick, isPending, disabled, savedAt }) {
+  // Show "Saved ✓" for 2s after save
+  const recentlySaved = savedAt && Date.now() - savedAt < 2000;
+  return (
+    <div className="flex items-center gap-3">
+      {recentlySaved && (
+        <span className="flex items-center gap-1 text-xs font-medium text-green-600">
+          <Check size={13} /> Saved
+        </span>
+      )}
       <button
-        onClick={() => {
-          const { admin_email, phone, address, ...orgFields } = f;
-          updateOrg.mutate(orgFields);
-        }}
-        disabled={updateOrg.isPending}
-        className="bg-green-500 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-50"
+        onClick={onClick}
+        disabled={disabled || isPending}
+        className="bg-green-500 hover:bg-green-600 text-white font-semibold rounded-lg px-5 py-2 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        {updateOrg.isPending ? "Saving…" : "Save Changes"}
+        {isPending ? "Saving…" : "Save changes"}
       </button>
     </div>
   );
 }
 
-// ── Policies Tab ───────────────────────────────────────────────────────────────
-function PoliciesTab() {
-  const [editingId, setEditingId] = useState(null);
+// Compare two flat objects for equality (shallow)
+function isDirty(a, b) {
+  if (!a || !b) return false;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) {
+    if ((a[k] ?? "") !== (b[k] ?? "")) return true;
+  }
+  return false;
+}
+
+// Initials from full name
+function initials(name = "") {
+  if (!name) return "?";
+  const p = name.trim().split(/\s+/);
+  if (p.length === 1) return p[0][0]?.toUpperCase() ?? "?";
+  return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+}
+
+// Convert money input field <-> minor units
+function majorToMinor(major) {
+  if (major === "" || major == null) return null;
+  const n = parseFloat(String(major).replace(/,/g, ""));
+  if (isNaN(n)) return null;
+  return Math.round(n * 100);
+}
+function minorToMajor(minor) {
+  if (minor == null) return "";
+  return (minor / 100).toFixed(2);
+}
+
+// ── Profile Tab ───────────────────────────────────────────────────────────────
+
+function ProfileTab() {
+  const { user, signOut } = useAuth();
+  const { data: profile, isLoading } = useProfile();
+  const updateProfile = useUpdateProfile();
+
+  const [form, setForm] = useState(null);
+  const [orig, setOrig] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    if (profile && !form) {
+      const init = {
+        full_name: profile.full_name ?? "",
+        phone:     profile.phone     ?? "",
+        job_title: profile.job_title ?? "",
+      };
+      setForm(init);
+      setOrig(init);
+    }
+  }, [profile, form]);
+
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-40 mb-4" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      </Card>
+    );
+  }
+
+  const dirty = isDirty(form, orig);
+
+  const onSave = () => {
+    updateProfile.mutate(form, {
+      onSuccess: () => {
+        setOrig(form);
+        setSavedAt(Date.now());
+      },
+    });
+  };
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-600">
-          Define rules that automatically flag or block out-of-policy spending.
-        </p>
-        <button className="bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 flex items-center gap-1.5">
-          <Plus size={14} /> Add Policy
-        </button>
-      </div>
-      <div className="space-y-3">
-        {STATIC_POLICIES.map(p => (
-          <div key={p.id} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
-            {editingId === p.id ? (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-gray-900">{p.name} — Edit</p>
-                <div className="flex gap-2 flex-wrap items-center text-sm text-gray-700">
-                  <span className="font-medium">IF</span>
-                  <input defaultValue={p.condition} className="border border-gray-300 rounded px-2 py-1 text-xs w-36" />
-                  <select defaultValue={p.operator} className="border border-gray-300 rounded px-2 py-1 text-xs">
-                    <option>exceeds</option><option>is</option><option>less than</option>
-                  </select>
-                  <input defaultValue={p.value} className="border border-gray-300 rounded px-2 py-1 text-xs w-24" />
-                  <span className="font-medium">THEN</span>
-                  <input defaultValue={p.action} className="border border-gray-300 rounded px-2 py-1 text-xs flex-1 min-w-[160px]" />
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setEditingId(null)} className="bg-green-500 text-white rounded px-3 py-1.5 text-xs font-medium">
-                    Save Policy
-                  </button>
-                  <button onClick={() => setEditingId(null)} className="text-gray-500 text-xs hover:text-gray-700">Cancel</button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="font-semibold text-gray-900 text-sm mb-1">{p.name}</p>
-                  <p className="text-sm text-gray-600">{p.text}</p>
-                </div>
-                <button
-                  onClick={() => setEditingId(p.id)}
-                  className="shrink-0 flex items-center gap-1 text-xs text-gray-500 border border-gray-200 rounded px-2.5 py-1.5 hover:bg-gray-50"
-                >
-                  <Edit2 size={11} /> Edit
-                </button>
-              </div>
-            )}
+    <div className="space-y-6">
+      <Card>
+        <SectionHeader
+          title="Profile"
+          description="How others see you across LedgeSuite."
+        />
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-xl font-bold shadow-sm">
+            {initials(form.full_name || user?.email)}
           </div>
-        ))}
-      </div>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{form.full_name || "Unnamed"}</p>
+            <p className="text-xs text-gray-500">{user?.email}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Full Name">
+            <input
+              className={inputCls}
+              value={form.full_name}
+              onChange={(e) => setForm({ ...form, full_name: e.target.value })}
+            />
+          </Field>
+          <Field label="Email" hint="Email is managed via your auth provider.">
+            <input className={inputCls} value={user?.email ?? ""} disabled />
+          </Field>
+          <Field label="Phone">
+            <input
+              className={inputCls}
+              placeholder="+233 24 000 0000"
+              value={form.phone}
+              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            />
+          </Field>
+          <Field label="Job Title">
+            <input
+              className={inputCls}
+              placeholder="Finance Lead"
+              value={form.job_title}
+              onChange={(e) => setForm({ ...form, job_title: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <div className="flex justify-end mt-6">
+          <SaveButton
+            onClick={onSave}
+            disabled={!dirty}
+            isPending={updateProfile.isPending}
+            savedAt={savedAt}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <SectionHeader
+          title="Sign out"
+          description="End your session on this device."
+        />
+        <button
+          onClick={signOut}
+          className="flex items-center gap-2 border border-gray-200 hover:bg-gray-50 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+        >
+          <LogOut size={14} /> Sign out
+        </button>
+      </Card>
     </div>
   );
 }
 
-// ── Tax Tab ────────────────────────────────────────────────────────────────────
-function TaxTab() {
+// ── Organization Tab ──────────────────────────────────────────────────────────
+
+function OrganizationTab() {
+  const { data: org, isLoading } = useOrganization();
+  const updateOrg = useUpdateOrganization();
+
+  const [form, setForm] = useState(null);
+  const [orig, setOrig] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    if (org && !form) {
+      const init = {
+        name:              org.name              ?? "",
+        industry:          org.industry          ?? "",
+        country_code:      org.country_code      ?? "GH",
+        base_currency:     org.base_currency     ?? "GHS",
+        timezone:          org.timezone          ?? "Africa/Accra",
+        tin:               org.tin               ?? "",
+        website:           org.website           ?? "",
+        logo_url:          org.logo_url          ?? "",
+        fiscal_year_start: org.fiscal_year_start ?? 1,
+      };
+      setForm(init);
+      setOrig(init);
+    }
+  }, [org, form]);
+
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-48 mb-4" />
+        <div className="grid grid-cols-2 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      </Card>
+    );
+  }
+
+  const dirty = isDirty(form, orig);
+
+  const onSave = () => {
+    updateOrg.mutate(
+      { ...form, fiscal_year_start: Number(form.fiscal_year_start) || 1 },
+      {
+        onSuccess: () => {
+          setOrig(form);
+          setSavedAt(Date.now());
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <SectionHeader
+          title="Organization"
+          description="Information about your company that appears in invoices, reports, and across the app."
+        />
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Company Name" full>
+            <input
+              className={inputCls}
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </Field>
+          <Field label="Slug" hint="Used in URLs. Read-only.">
+            <input className={inputCls} value={org.slug ?? ""} disabled />
+          </Field>
+          <Field label="Industry">
+            <input
+              className={inputCls}
+              placeholder="Software, Retail, Manufacturing…"
+              value={form.industry}
+              onChange={(e) => setForm({ ...form, industry: e.target.value })}
+            />
+          </Field>
+          <Field label="Country">
+            <select
+              className={inputCls}
+              value={form.country_code}
+              onChange={(e) => setForm({ ...form, country_code: e.target.value })}
+            >
+              {COUNTRIES.map((c) => (
+                <option key={c.code} value={c.code}>{c.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Base Currency" hint="Default currency for new transactions.">
+            <select
+              className={inputCls}
+              value={form.base_currency}
+              onChange={(e) => setForm({ ...form, base_currency: e.target.value })}
+            >
+              {CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>{c.code} — {c.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Timezone">
+            <select
+              className={inputCls}
+              value={form.timezone}
+              onChange={(e) => setForm({ ...form, timezone: e.target.value })}
+            >
+              {TIMEZONES.map((tz) => (
+                <option key={tz} value={tz}>{tz}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Fiscal Year Starts" hint="Month your accounting year begins.">
+            <select
+              className={inputCls}
+              value={form.fiscal_year_start}
+              onChange={(e) => setForm({ ...form, fiscal_year_start: e.target.value })}
+            >
+              {MONTHS.map((m, i) => (
+                <option key={i + 1} value={i + 1}>{m}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Tax ID / TIN">
+            <input
+              className={inputCls}
+              value={form.tin}
+              onChange={(e) => setForm({ ...form, tin: e.target.value })}
+            />
+          </Field>
+          <Field label="Website">
+            <input
+              className={inputCls}
+              placeholder="https://example.com"
+              value={form.website}
+              onChange={(e) => setForm({ ...form, website: e.target.value })}
+            />
+          </Field>
+          <Field label="Logo URL" full hint="Public URL of your company logo. Used across the app and on invoices.">
+            <input
+              className={inputCls}
+              placeholder="https://…/logo.png"
+              value={form.logo_url}
+              onChange={(e) => setForm({ ...form, logo_url: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <div className="flex justify-end mt-6">
+          <SaveButton
+            onClick={onSave}
+            disabled={!dirty}
+            isPending={updateOrg.isPending}
+            savedAt={savedAt}
+          />
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ── Team Tab ──────────────────────────────────────────────────────────────────
+
+function TeamTab() {
+  const { memberId: myMemberId, myRole } = useAuth();
+  const { data: members = [], isLoading } = useMembers();
+  const updateMember     = useUpdateMember();
+  const deactivateMember = useDeactivateMember();
+  const reactivateMember = useReactivateMember();
+
+  const canManage = myRole === "owner" || myRole === "admin";
+
+  return (
+    <Card>
+      <SectionHeader
+        title="Team"
+        description={
+          canManage
+            ? "Manage roles and access for everyone in your workspace."
+            : "Members of your workspace. Only owners and admins can change roles."
+        }
+      />
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
+        </div>
+      ) : members.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-8">No members yet</p>
+      ) : (
+        <div className="border border-gray-100 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {["Member", "Role", "Department", "Status", ""].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider"
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m) => {
+                const name = m.profiles?.full_name ?? "—";
+                const isActive = !m.deactivated_at;
+                const isMe = m.id === myMemberId;
+
+                return (
+                  <tr key={m.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                          {initials(name)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {name}
+                            {isMe && <span className="ml-2 text-xs font-normal text-gray-400">(you)</span>}
+                          </p>
+                          {m.profiles?.job_title && (
+                            <p className="text-xs text-gray-400 truncate">{m.profiles.job_title}</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {canManage && !isMe ? (
+                        <select
+                          className="text-xs border border-gray-200 rounded-md px-2 py-1 bg-white"
+                          value={m.role}
+                          onChange={(e) => updateMember.mutate({ id: m.id, role: e.target.value })}
+                          disabled={updateMember.isPending}
+                        >
+                          {ROLES.map((r) => (
+                            <option key={r.value} value={r.value}>{r.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${ROLE_BADGE[m.role] ?? "bg-gray-100 text-gray-600"}`}>
+                          {m.role}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">
+                      {m.departments?.name ?? "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                        isActive
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-500"
+                      }`}>
+                        {isActive ? <Check size={10} /> : <AlertCircle size={10} />}
+                        {isActive ? "Active" : "Deactivated"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {canManage && !isMe && (
+                        isActive ? (
+                          <button
+                            onClick={() => deactivateMember.mutate({ id: m.id })}
+                            disabled={deactivateMember.isPending}
+                            className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                          >
+                            Deactivate
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => reactivateMember.mutate({ id: m.id })}
+                            disabled={reactivateMember.isPending}
+                            className="text-xs text-green-600 hover:text-green-700 font-medium disabled:opacity-50"
+                          >
+                            Reactivate
+                          </button>
+                        )
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!canManage && (
+        <p className="text-xs text-gray-400 mt-4">
+          Only owners and admins can change roles or deactivate members.
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// ── Departments Tab ───────────────────────────────────────────────────────────
+
+function DepartmentsTab() {
+  const { orgCurrency } = useAuth();
+  const currency = orgCurrency ?? "GHS";
+
+  const { data: departments = [], isLoading } = useDepartments();
+  const createDept = useCreateDepartment();
+  const updateDept = useUpdateDepartment();
+  const deleteDept = useDeleteDepartment();
+
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ name: "", code: "", budget: "" });
+
+  const reset = () => {
+    setAdding(false);
+    setEditingId(null);
+    setForm({ name: "", code: "", budget: "" });
+  };
+
+  const startEdit = (d) => {
+    setEditingId(d.id);
+    setAdding(false);
+    setForm({
+      name:   d.name ?? "",
+      code:   d.code ?? "",
+      budget: minorToMajor(d.budget_amount),
+    });
+  };
+
+  const handleSave = () => {
+    if (!form.name.trim()) return;
+    const payload = {
+      name:          form.name.trim(),
+      code:          form.code.trim() || null,
+      budget_amount: majorToMinor(form.budget) ?? 0,
+      currency,
+    };
+    if (editingId) {
+      updateDept.mutate({ id: editingId, ...payload }, { onSuccess: reset });
+    } else {
+      createDept.mutate(payload, { onSuccess: reset });
+    }
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        title="Departments"
+        description="Organize team members and track budgets by department."
+        action={
+          !adding && !editingId && (
+            <button
+              onClick={() => { setAdding(true); setForm({ name: "", code: "", budget: "" }); }}
+              className="flex items-center gap-1.5 bg-green-500 hover:bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <Plus size={14} /> New department
+            </button>
+          )
+        }
+      />
+
+      {(adding || editingId) && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="Name">
+              <input
+                className={inputCls}
+                placeholder="Engineering"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                autoFocus
+              />
+            </Field>
+            <Field label="Code" hint="Short identifier, e.g. ENG">
+              <input
+                className={inputCls}
+                placeholder="ENG"
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+              />
+            </Field>
+            <Field label={`Budget (${currency})`}>
+              <input
+                className={inputCls}
+                placeholder="0.00"
+                inputMode="decimal"
+                value={form.budget}
+                onChange={(e) => setForm({ ...form, budget: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <button
+              onClick={reset}
+              className="text-sm text-gray-600 hover:text-gray-800 px-3 py-1.5"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!form.name.trim() || createDept.isPending || updateDept.isPending}
+              className="bg-green-500 hover:bg-green-600 text-white text-sm font-semibold px-4 py-1.5 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {(createDept.isPending || updateDept.isPending) ? "Saving…" : (editingId ? "Save" : "Create")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      ) : departments.length === 0 && !adding ? (
+        <div className="text-center py-12 border border-dashed border-gray-200 rounded-lg">
+          <Briefcase size={28} className="text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500 mb-1">No departments yet</p>
+          <p className="text-xs text-gray-400">Create one to start tracking budgets per team.</p>
+        </div>
+      ) : (
+        <div className="border border-gray-100 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {["Name", "Code", "Manager", "Budget", ""].map((h) => (
+                  <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {departments.map((d) => {
+                const managerName = d.manager?.profiles?.full_name ?? "—";
+                return (
+                  <tr key={d.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-900">{d.name}</td>
+                    <td className="px-4 py-3 text-xs font-mono text-gray-500">
+                      {d.code ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">{managerName}</td>
+                    <td className="px-4 py-3 text-sm font-semibold tabular-nums text-gray-800">
+                      {fmt(d.budget_amount, d.currency ?? currency)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => startEdit(d)}
+                          className="p-1.5 text-gray-400 hover:text-gray-700 rounded transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm(`Delete "${d.name}"? This cannot be undone.`)) {
+                              deleteDept.mutate({ id: d.id });
+                            }
+                          }}
+                          disabled={deleteDept.isPending}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ── Finance Tab ───────────────────────────────────────────────────────────────
+
+function FinanceTab() {
+  const { orgCurrency } = useAuth();
+  const currency = orgCurrency ?? "GHS";
+
   const { data: settings, isLoading } = useOrgSettings();
   const updateSettings = useUpdateOrgSettings();
+
   const [form, setForm] = useState(null);
+  const [orig, setOrig] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
 
   useEffect(() => {
     if (settings && !form) {
-      setForm({
-        fiscal_year_end:              settings.fiscal_year_end              ?? "",
-        accounting_method:            settings.accounting_method            ?? "",
-        tax_id:                       settings.tax_id                       ?? "",
-        vat_number:                   settings.vat_number                   ?? "",
-        chart_of_accounts_standard:   settings.chart_of_accounts_standard   ?? "",
-        default_currency:             settings.default_currency             ?? "",
-        standard_tax_rate:            settings.standard_tax_rate            ?? "",
-        revenue_recognition:          settings.revenue_recognition          ?? "",
-      });
+      const init = {
+        revenue_recognition_method:    settings.revenue_recognition_method ?? "accrual",
+        default_tax_rate:              settings.default_tax_rate ?? 0,
+        default_payment_terms:         settings.default_payment_terms ?? "Net 30",
+        expense_approval_threshold:    minorToMajor(settings.expense_approval_threshold),
+        card_txn_approval_threshold:   minorToMajor(settings.card_txn_approval_threshold),
+        require_receipts_above:        minorToMajor(settings.require_receipts_above),
+      };
+      setForm(init);
+      setOrig(init);
     }
-  }, [settings]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [settings, form]);
 
-  const set = (field) => (e) => setForm(prev => ({ ...prev, [field]: e.target.value }));
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-40 mb-4" />
+        <div className="grid grid-cols-2 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      </Card>
+    );
+  }
 
-  if (isLoading) return (
-    <div className="space-y-3">
-      {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full rounded-lg" />)}
-    </div>
-  );
+  const dirty = isDirty(form, orig);
 
-  const f = form ?? {};
+  const onSave = () => {
+    const payload = {
+      revenue_recognition_method:  form.revenue_recognition_method,
+      default_tax_rate:            Number(form.default_tax_rate) || 0,
+      default_payment_terms:       form.default_payment_terms,
+      expense_approval_threshold:  majorToMinor(form.expense_approval_threshold),
+      card_txn_approval_threshold: majorToMinor(form.card_txn_approval_threshold),
+      require_receipts_above:      majorToMinor(form.require_receipts_above),
+    };
+    updateSettings.mutate(payload, {
+      onSuccess: () => {
+        setOrig(form);
+        setSavedAt(Date.now());
+      },
+    });
+  };
+
   return (
-    <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-      <h3 className="text-sm font-semibold text-gray-900 mb-4">Tax & Accounting Settings</h3>
+    <Card>
+      <SectionHeader
+        title="Finance preferences"
+        description="Defaults that apply across accounting, expenses, and approvals."
+      />
+
       <div className="grid grid-cols-2 gap-4">
-        {[
-          ["Fiscal Year End",              "fiscal_year_end"],
-          ["Accounting Method",            "accounting_method"],
-          ["Tax ID",                       "tax_id"],
-          ["VAT Number",                   "vat_number"],
-          ["Chart of Accounts Standard",   "chart_of_accounts_standard"],
-          ["Default Currency",             "default_currency"],
-          ["Standard Tax Rate",            "standard_tax_rate"],
-          ["Revenue Recognition",          "revenue_recognition"],
-        ].map(([label, field]) => (
-          <div key={field}>
-            <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
+        <Field label="Revenue Recognition" hint="Cash records when paid; accrual records when earned.">
+          <select
+            className={inputCls}
+            value={form.revenue_recognition_method}
+            onChange={(e) => setForm({ ...form, revenue_recognition_method: e.target.value })}
+          >
+            <option value="accrual">Accrual</option>
+            <option value="cash">Cash</option>
+          </select>
+        </Field>
+        <Field label="Default Tax Rate (%)" hint="Used as the default on new invoices and bills.">
+          <input
+            className={inputCls}
+            type="number"
+            min="0" max="100" step="0.01"
+            value={form.default_tax_rate}
+            onChange={(e) => setForm({ ...form, default_tax_rate: e.target.value })}
+          />
+        </Field>
+        <Field label="Default Payment Terms" hint="Shown on invoices, e.g. Net 30, Due on receipt.">
+          <input
+            className={inputCls}
+            value={form.default_payment_terms}
+            onChange={(e) => setForm({ ...form, default_payment_terms: e.target.value })}
+          />
+        </Field>
+        <div /> {/* spacer */}
+
+        <Field
+          label={`Expense Approval Threshold (${currency})`}
+          hint="Expenses above this amount require approval."
+        >
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            placeholder="0.00"
+            value={form.expense_approval_threshold}
+            onChange={(e) => setForm({ ...form, expense_approval_threshold: e.target.value })}
+          />
+        </Field>
+        <Field
+          label={`Card Transaction Approval (${currency})`}
+          hint="Card purchases above this amount need approval."
+        >
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            placeholder="0.00"
+            value={form.card_txn_approval_threshold}
+            onChange={(e) => setForm({ ...form, card_txn_approval_threshold: e.target.value })}
+          />
+        </Field>
+        <Field
+          label={`Require Receipts Above (${currency})`}
+          hint="Submitters must attach a receipt for spend above this amount."
+        >
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            placeholder="0.00"
+            value={form.require_receipts_above}
+            onChange={(e) => setForm({ ...form, require_receipts_above: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      <div className="flex justify-end mt-6">
+        <SaveButton
+          onClick={onSave}
+          disabled={!dirty}
+          isPending={updateSettings.isPending}
+          savedAt={savedAt}
+        />
+      </div>
+    </Card>
+  );
+}
+
+// ── Invoicing Tab ─────────────────────────────────────────────────────────────
+
+function InvoicingTab() {
+  const { data: settings, isLoading } = useOrgSettings();
+  const updateSettings = useUpdateOrgSettings();
+
+  const [form, setForm] = useState(null);
+  const [orig, setOrig] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    if (settings && !form) {
+      const init = {
+        invoice_logo_url:    settings.invoice_logo_url    ?? "",
+        invoice_color_hex:   settings.invoice_color_hex   ?? "#22C55E",
+        invoice_footer_text: settings.invoice_footer_text ?? "",
+      };
+      setForm(init);
+      setOrig(init);
+    }
+  }, [settings, form]);
+
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-40 mb-4" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+        </div>
+      </Card>
+    );
+  }
+
+  const dirty = isDirty(form, orig);
+
+  const onSave = () => {
+    updateSettings.mutate(form, {
+      onSuccess: () => {
+        setOrig(form);
+        setSavedAt(Date.now());
+      },
+    });
+  };
+
+  return (
+    <Card>
+      <SectionHeader
+        title="Invoice branding"
+        description="Customise how invoices look when you send them to customers."
+      />
+
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Invoice Logo URL" full hint="Public URL of a PNG or JPG. Defaults to your company logo if empty.">
+          <input
+            className={inputCls}
+            placeholder="https://…/invoice-logo.png"
+            value={form.invoice_logo_url}
+            onChange={(e) => setForm({ ...form, invoice_logo_url: e.target.value })}
+          />
+        </Field>
+
+        <Field label="Brand Color" hint="Used for invoice headers and accents.">
+          <div className="flex items-center gap-2">
             <input
-              value={f[field] ?? ""}
-              onChange={set(field)}
-              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+              type="color"
+              value={form.invoice_color_hex}
+              onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
+              className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer"
+            />
+            <input
+              className={inputCls}
+              value={form.invoice_color_hex}
+              onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
+              placeholder="#22C55E"
+            />
+          </div>
+        </Field>
+        <div /> {/* spacer */}
+
+        <Field label="Footer Text" full hint="Appears at the bottom of every invoice. Add bank details or thank-you notes.">
+          <textarea
+            className={`${inputCls} min-h-[90px] resize-y`}
+            placeholder="Thank you for your business. Bank: …"
+            value={form.invoice_footer_text}
+            onChange={(e) => setForm({ ...form, invoice_footer_text: e.target.value })}
+          />
+        </Field>
+      </div>
+
+      {/* Live preview */}
+      <div className="mt-6">
+        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Preview</p>
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div
+            className="px-5 py-3 flex items-center justify-between"
+            style={{ background: form.invoice_color_hex }}
+          >
+            {form.invoice_logo_url ? (
+              <img
+                src={form.invoice_logo_url}
+                alt="Invoice logo"
+                className="h-8 w-auto object-contain"
+                onError={(e) => { e.currentTarget.style.display = "none"; }}
+              />
+            ) : (
+              <span className="text-white font-bold text-sm">Your Logo</span>
+            )}
+            <span className="text-white font-bold text-sm">INVOICE</span>
+          </div>
+          <div className="px-5 py-3 bg-white">
+            <p className="text-xs text-gray-400">Invoice header preview</p>
+          </div>
+          {form.invoice_footer_text && (
+            <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
+              <p className="text-xs text-gray-500 whitespace-pre-line">{form.invoice_footer_text}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex justify-end mt-6">
+        <SaveButton
+          onClick={onSave}
+          disabled={!dirty}
+          isPending={updateSettings.isPending}
+          savedAt={savedAt}
+        />
+      </div>
+    </Card>
+  );
+}
+
+// ── Notifications Tab ─────────────────────────────────────────────────────────
+
+function NotificationsTab() {
+  const { data: settings, isLoading } = useOrgSettings();
+  const updateSettings = useUpdateOrgSettings();
+
+  const [form, setForm] = useState(null);
+  const [orig, setOrig] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  useEffect(() => {
+    if (settings && !form) {
+      const init = {
+        notify_on_new_bill:         !!settings.notify_on_new_bill,
+        notify_on_approval_needed:  !!settings.notify_on_approval_needed,
+        notify_on_overdue_invoice:  !!settings.notify_on_overdue_invoice,
+      };
+      setForm(init);
+      setOrig(init);
+    }
+  }, [settings, form]);
+
+  if (isLoading || !form) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-40 mb-4" />
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+        </div>
+      </Card>
+    );
+  }
+
+  const dirty = JSON.stringify(form) !== JSON.stringify(orig);
+
+  const onSave = () => {
+    updateSettings.mutate(form, {
+      onSuccess: () => {
+        setOrig(form);
+        setSavedAt(Date.now());
+      },
+    });
+  };
+
+  const TOGGLES = [
+    {
+      key:   "notify_on_new_bill",
+      title: "New bills",
+      desc:  "Email the team when a bill is added to the inbox.",
+    },
+    {
+      key:   "notify_on_approval_needed",
+      title: "Approval required",
+      desc:  "Notify approvers when an expense or bill needs their decision.",
+    },
+    {
+      key:   "notify_on_overdue_invoice",
+      title: "Overdue invoices",
+      desc:  "Alert the team when a customer invoice passes its due date.",
+    },
+  ];
+
+  return (
+    <Card>
+      <SectionHeader
+        title="Notifications"
+        description="Choose what your team gets notified about. Affects all members in this organization."
+      />
+
+      <div className="space-y-3">
+        {TOGGLES.map((t) => (
+          <div
+            key={t.key}
+            className="flex items-center justify-between gap-4 px-4 py-3 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">{t.title}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{t.desc}</p>
+            </div>
+            <Toggle
+              checked={form[t.key]}
+              onChange={(v) => setForm({ ...form, [t.key]: v })}
             />
           </div>
         ))}
       </div>
-      <button
-        onClick={() => updateSettings.mutate(form)}
-        disabled={updateSettings.isPending}
-        className="mt-5 bg-green-500 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-50"
-      >
-        {updateSettings.isPending ? "Saving…" : "Save Changes"}
-      </button>
-    </div>
+
+      <div className="flex justify-end mt-6">
+        <SaveButton
+          onClick={onSave}
+          disabled={!dirty}
+          isPending={updateSettings.isPending}
+          savedAt={savedAt}
+        />
+      </div>
+    </Card>
   );
 }
 
-// ── Security Tab ───────────────────────────────────────────────────────────────
-function SecurityTab() {
-  const [twoFA,          setTwoFA]          = useState(true);
-  const [sessionTimeout, setSessionTimeout] = useState("1 hour");
+// ── Integrations Tab ──────────────────────────────────────────────────────────
+
+function IntegrationsTab() {
+  const { data: integrations = [], isLoading } = useIntegrations();
+  const disconnect = useDisconnectIntegration();
+
+  const STATUS_CFG = {
+    connected:    { cls: "bg-green-100 text-green-700",  label: "Connected"    },
+    disconnected: { cls: "bg-gray-100 text-gray-500",    label: "Disconnected" },
+    error:        { cls: "bg-red-100 text-red-700",      label: "Error"        },
+  };
+
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-gray-900 text-sm">Two-Factor Authentication</p>
-            <p className="text-xs text-gray-500 mt-0.5">Require 2FA for all team members accessing Ledge</p>
-          </div>
-          <button
-            onClick={() => setTwoFA(!twoFA)}
-            className={`relative inline-flex w-11 h-6 rounded-full transition-colors ${twoFA ? "bg-green-500" : "bg-gray-300"}`}
+    <Card>
+      <SectionHeader
+        title="Integrations"
+        description="Services you've connected to LedgeSuite. Add or configure new integrations from the Integrations page."
+        action={
+          <a
+            href="/integrations"
+            className="flex items-center gap-1.5 text-sm font-medium text-green-600 hover:text-green-700"
           >
-            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${twoFA ? "translate-x-6" : "translate-x-1"}`} />
-          </button>
-        </div>
-      </div>
+            Manage <ExternalLink size={12} />
+          </a>
+        }
+      />
 
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        <p className="font-semibold text-gray-900 text-sm mb-3">Session Timeout</p>
-        <select
-          value={sessionTimeout}
-          onChange={e => setSessionTimeout(e.target.value)}
-          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-        >
-          {["30 minutes", "1 hour", "4 hours", "8 hours"].map(o => <option key={o}>{o}</option>)}
-        </select>
-      </div>
-
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <p className="font-semibold text-gray-900 text-sm">Login History</p>
+      {isLoading ? (
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              {["Date & Time", "Device", "Location", "IP Address", "Status"].map(h => (
-                <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {LOGIN_HISTORY.map((row, i) => (
-              <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 text-xs text-gray-600">{row.date}</td>
-                <td className="px-4 py-3 text-xs text-gray-600">{row.device}</td>
-                <td className="px-4 py-3 text-xs text-gray-600">{row.location}</td>
-                <td className="px-4 py-3 font-mono text-xs text-gray-500">{row.ip}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                    row.status === "Success" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                  }`}>
-                    {row.status === "Success" ? <Check size={10} /> : <AlertCircle size={10} />}
-                    {row.status}
+      ) : integrations.length === 0 ? (
+        <div className="text-center py-12 border border-dashed border-gray-200 rounded-lg">
+          <Plug size={28} className="text-gray-300 mx-auto mb-2" />
+          <p className="text-sm text-gray-500 mb-1">No integrations yet</p>
+          <a href="/integrations" className="text-xs text-green-600 hover:text-green-700 font-medium">
+            Browse integrations →
+          </a>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {integrations.map((i) => {
+            const cfg = STATUS_CFG[i.status] ?? STATUS_CFG.disconnected;
+            const lastSync = i.last_sync_at
+              ? new Date(i.last_sync_at).toLocaleDateString("en-GH", { month: "short", day: "numeric", year: "numeric" })
+              : "Never";
+            return (
+              <div
+                key={i.id}
+                className="flex items-center justify-between gap-4 px-4 py-3 border border-gray-100 rounded-lg"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">
+                    {i.display_name ?? i.provider}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5 capitalize">
+                    {i.provider} · Last sync: {lastSync}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${cfg.cls}`}>
+                    {cfg.label}
                   </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="px-6 py-4">
-          <button className="text-sm text-red-600 border border-red-300 rounded-md px-4 py-2 hover:bg-red-50 font-medium">
-            Revoke All Sessions
-          </button>
+                  {i.status === "connected" && (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Disconnect ${i.display_name ?? i.provider}?`)) {
+                          disconnect.mutate({ id: i.id });
+                        }
+                      }}
+                      disabled={disconnect.isPending}
+                      className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
-    </div>
+      )}
+    </Card>
   );
 }
 
-// ── Billing Tab ────────────────────────────────────────────────────────────────
+// ── Billing Tab ───────────────────────────────────────────────────────────────
+
 function BillingTab() {
   const { data: org, isLoading } = useOrganization();
-  const plan = org?.org_subscriptions?.[0]?.saas_plans;
-  const invoiceMonths = ["Apr 2026", "Mar 2026", "Feb 2026", "Jan 2026", "Dec 2025", "Nov 2025"];
+
+  const subscription = org?.org_subscriptions?.[0];
+  const plan = subscription?.saas_plans;
+
+  const STATUS_CFG = {
+    trialing:  { cls: "bg-blue-100 text-blue-700",     label: "Trialing"  },
+    active:    { cls: "bg-green-100 text-green-700",   label: "Active"    },
+    past_due:  { cls: "bg-amber-100 text-amber-700",   label: "Past due"  },
+    cancelled: { cls: "bg-gray-100 text-gray-500",     label: "Cancelled" },
+  };
+  const statusCfg = STATUS_CFG[subscription?.status] ?? STATUS_CFG.trialing;
+
+  if (isLoading) {
+    return (
+      <Card>
+        <Skeleton className="h-6 w-40 mb-4" />
+        <Skeleton className="h-32 w-full" />
+      </Card>
+    );
+  }
+
+  const priceMonthlyCents = plan?.price_monthly_usd_cents ?? 0;
+  const priceMonthly = priceMonthlyCents / 100;
+
+  const features = [
+    plan?.max_members && `Up to ${plan.max_members} members`,
+    plan?.max_transactions_pm && `${plan.max_transactions_pm.toLocaleString()} transactions / month`,
+    plan?.max_cards && `${plan.max_cards} cards`,
+    plan?.has_ai_copilot && "Ledge AI access",
+    plan?.has_api_access && "API access",
+    plan?.has_custom_roles && "Custom roles",
+  ].filter(Boolean);
+
+  const fmtDate = (d) =>
+    d ? new Date(d).toLocaleDateString("en-GH", { month: "short", day: "numeric", year: "numeric" }) : "—";
 
   return (
-    <div className="space-y-5">
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
-        {isLoading ? <Skeleton className="h-20 w-full" /> : (
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="font-bold text-gray-900 text-lg">{plan?.name ?? "Growth Plan"}</p>
-              <p className="text-2xl font-bold tabular-nums text-gray-900 mt-1">
-                {plan?.price_monthly ? `$${plan.price_monthly}` : "$149"}
-                <span className="text-sm font-normal text-gray-500">/month</span>
-              </p>
-            </div>
-            <button className="bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600">
-              Upgrade Plan
-            </button>
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 mt-4 text-sm text-gray-600">
-          {["Up to 25 users", "Up to 50 cards", "Unlimited transactions", "AI Copilot access", "Basic integrations", "Email support"].map(f => (
-            <div key={f} className="flex items-center gap-2">
-              <Check size={13} className="text-green-500" />{f}
-            </div>
-          ))}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <Card>
+        <SectionHeader
+          title="Subscription"
+          description="Your current plan and billing period."
+          action={
+            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold capitalize ${statusCfg.cls}`}>
+              {statusCfg.label}
+            </span>
+          }
+        />
 
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
-          <p className="font-semibold text-gray-900 text-sm">Invoice History</p>
+        {!plan ? (
+          <div className="text-center py-10">
+            <CreditCard size={28} className="text-gray-300 mx-auto mb-2" />
+            <p className="text-sm text-gray-500 mb-1">No active subscription</p>
+            <p className="text-xs text-gray-400">
+              You're currently using LedgeSuite without a plan.
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-end justify-between mb-6">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{plan.tier}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-0.5">{plan.name}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-3xl font-bold tabular-nums text-gray-900">
+                  ${priceMonthly.toFixed(0)}
+                </p>
+                <p className="text-xs text-gray-500">per month</p>
+              </div>
+            </div>
+
+            {features.length > 0 && (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 mb-6">
+                {features.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm text-gray-700">
+                    <Check size={13} className="text-green-500 shrink-0" />
+                    {f}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-4 pt-5 border-t border-gray-100">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Period start</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">
+                  {fmtDate(subscription.current_period_start)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Period end</p>
+                <p className="text-sm font-medium text-gray-900 mt-1">
+                  {fmtDate(subscription.current_period_end)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Billing email</p>
+                <p className="text-sm font-medium text-gray-900 mt-1 truncate">
+                  {subscription.billing_email ?? "—"}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card>
+        <SectionHeader
+          title="Need to change your plan?"
+          description="Upgrade, downgrade, or cancel your subscription. We'll prorate any changes."
+        />
+        <div className="flex gap-2">
+          <button
+            disabled
+            className="bg-green-500 text-white text-sm font-semibold px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+            title="Coming soon"
+          >
+            Manage plan
+          </button>
+          <button
+            disabled
+            className="border border-gray-200 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg opacity-50 cursor-not-allowed"
+            title="Coming soon"
+          >
+            View invoices
+          </button>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              {["Period", "Amount", "Status", ""].map(h => (
-                <th key={h} className="text-left px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {invoiceMonths.map(inv => (
-              <tr key={inv} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-6 py-3 text-gray-700">{inv}</td>
-                <td className="px-6 py-3 tabular-nums text-gray-900 font-medium">$149.00</td>
-                <td className="px-6 py-3">
-                  <span className="bg-green-100 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full">Paid</span>
-                </td>
-                <td className="px-6 py-3">
-                  <button className="text-xs text-gray-400 hover:text-green-600">Download PDF</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        <p className="text-xs text-gray-400 mt-3">
+          Self-serve plan management is coming soon. Contact support@ledgesuite.com for changes.
+        </p>
+      </Card>
     </div>
   );
 }
 
-// ── Main Page ──────────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
 const TAB_CONTENT = {
-  company:  CompanyTab,
-  policies: PoliciesTab,
-  tax:      TaxTab,
-  security: SecurityTab,
-  billing:  BillingTab,
+  profile:       ProfileTab,
+  organization:  OrganizationTab,
+  team:          TeamTab,
+  departments:   DepartmentsTab,
+  finance:       FinanceTab,
+  invoicing:     InvoicingTab,
+  notifications: NotificationsTab,
+  integrations:  IntegrationsTab,
+  billing:       BillingTab,
 };
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState("company");
+  const [activeTab, setActiveTab] = useState("profile");
   const TabComponent = TAB_CONTENT[activeTab];
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] p-6">
-      <div className="mb-6">
+    <div className="space-y-6">
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <div>
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage your organization settings and preferences</p>
+        <p className="text-sm text-gray-500 mt-0.5">Manage your account, team, and workspace preferences.</p>
       </div>
 
-      <div className="flex gap-6">
-        {/* Left nav */}
-        <div className="w-48 shrink-0">
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
-            {TABS.map(tab => {
-              const Icon   = tab.icon;
+      {/* ── Layout: sidebar nav + content ─────────────────────────────────── */}
+      <div className="flex gap-6 items-start">
+        {/* Sidebar */}
+        <aside className="w-56 shrink-0 sticky top-6">
+          <nav className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
               const active = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`w-full flex items-center gap-2.5 px-4 py-3 text-sm border-b border-gray-100 last:border-0 transition-colors border-l-[3px] ${
+                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm border-l-[3px] transition-colors ${
                     active
                       ? "bg-green-50 text-green-700 font-semibold border-l-green-500"
                       : "text-gray-600 hover:bg-gray-50 border-l-transparent hover:border-l-gray-200"
                   }`}
                 >
-                  <Icon size={14} />
+                  <Icon size={14} className="shrink-0" />
                   {tab.label}
                 </button>
               );
             })}
-          </div>
-        </div>
+          </nav>
+        </aside>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
