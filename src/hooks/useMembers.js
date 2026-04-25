@@ -226,7 +226,16 @@ export function useInviteMember() {
       const { data, error } = await supabase.functions.invoke("invite-member", {
         body: { email, role, department_id: department_id || null },
       });
-      if (error) throw error;
+      if (error) {
+        // supabase-js wraps non-2xx as a generic FunctionsHttpError.
+        // Try to extract the real message from the response body.
+        let message = "Failed to send invite. Please try again.";
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) message = body.error;
+        } catch (_) { /* fall through to generic */ }
+        throw new Error(message);
+      }
       if (data?.error) throw new Error(data.error);
       return data;
     },
