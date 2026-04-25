@@ -128,7 +128,34 @@ export default function Integrations() {
   }, {});
 
   return (
-    <div className="min-h-screen bg-[#F7F7F8] p-6">
+    <div className="relative min-h-screen bg-[#F7F7F8] p-6">
+
+      {/* ── Coming-Soon overlay ─────────────────────────────────────────────── */}
+      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center pointer-events-none select-none">
+        <div className="bg-white rounded-2xl shadow-2xl px-12 py-10 flex flex-col items-center gap-4 pointer-events-auto border border-gray-100">
+          <div className="w-14 h-14 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
+            <Zap size={28} className="text-white" />
+          </div>
+          <div className="text-center">
+            <p className="text-xs font-semibold text-green-600 uppercase tracking-widest mb-1">
+              Coming Soon
+            </p>
+            <h2 className="text-2xl font-bold text-gray-900 leading-tight">
+              Integrations
+            </h2>
+            <p className="text-sm text-gray-500 mt-2 max-w-xs">
+              We're connecting your favourite tools. Integrations will be available in the next release.
+            </p>
+          </div>
+          <span className="mt-1 inline-flex items-center gap-1.5 bg-green-50 text-green-700 text-xs font-medium px-3 py-1.5 rounded-full">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+            In development
+          </span>
+        </div>
+      </div>
+
+      {/* ── Blurred existing content ─────────────────────────────────────────── */}
+      <div className="blur-sm pointer-events-none select-none" aria-hidden="true">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Integrations</h1>
         <p className="text-sm text-gray-500 mt-0.5">
@@ -218,6 +245,7 @@ export default function Integrations() {
           </table>
         </div>
       </div>
+      </div>{/* end blur wrapper */}
     </div>
   );
 }
