@@ -168,3 +168,53 @@ export function useDeleteDepartment() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["departments", orgId] }),
   });
 }
+
+// ── Team CRUD ────────────────────────────────────────────────────────────────
+export function useCreateTeam() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ name, lead_id }) => {
+      const { data, error } = await supabase
+        .from("teams")
+        .insert({ name, lead_id: lead_id || null, organization_id: orgId, is_active: true })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["teams", orgId] }),
+  });
+}
+
+export function useAddTeamMember() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ team_id, member_id }) => {
+      const { data, error } = await supabase
+        .from("team_members")
+        .insert({ team_id, member_id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["teams", orgId] }),
+  });
+}
+
+export function useRemoveTeamMember() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase
+        .from("team_members")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["teams", orgId] }),
+  });
+}
