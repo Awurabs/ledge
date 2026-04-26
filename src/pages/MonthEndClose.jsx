@@ -511,34 +511,94 @@ export default function MonthEndClose() {
   const fp = activePeriod?.financial_periods;
   const range = fp ? getPeriodRange(fp) : null;
 
+  // ── Revenue: revenue_records + invoices + credit transactions ───────────────
   const { data: periodRevenue = 0 } = useQuery({
     queryKey: ["close_period_revenue", orgId, fp?.id],
     enabled: !!orgId && !!range,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("revenue_records")
-        .select("amount")
-        .eq("organization_id", orgId)
-        .gte("revenue_date", range.from)
-        .lte("revenue_date", range.to);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+      const [revRecords, invoices, creditTxns] = await Promise.all([
+        // Manual revenue records (non-invoice-linked)
+        supabase
+          .from("revenue_records")
+          .select("amount")
+          .eq("organization_id", orgId)
+          .gte("revenue_date", range.from)
+          .lte("revenue_date", range.to)
+          .is("invoice_id", null),
+        // Invoices issued in period (non-draft/void)
+        supabase
+          .from("invoices")
+          .select("total_amount, amount_paid, amount_due, status")
+          .eq("organization_id", orgId)
+          .gte("issue_date", range.from)
+          .lte("issue_date", range.to)
+          .not("status", "in", '("draft","void")')
+          .is("deleted_at", null),
+        // Credit transactions
+        supabase
+          .from("transactions")
+          .select("amount")
+          .eq("organization_id", orgId)
+          .eq("direction", "credit")
+          .gte("txn_date", range.from)
+          .lte("txn_date", range.to)
+          .is("deleted_at", null),
+      ]);
+      if (revRecords.error) throw revRecords.error;
+      if (invoices.error)   throw invoices.error;
+      if (creditTxns.error) throw creditTxns.error;
+
+      const fromRecords = (revRecords.data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+      const fromInvoices = (invoices.data ?? []).reduce((s, inv) => {
+        if (inv.status === "paid") return s + (inv.total_amount ?? 0);
+        if (inv.status === "partial" || inv.status === "partially_paid") return s + (inv.amount_paid ?? 0);
+        return s + (inv.amount_due ?? inv.total_amount ?? 0);
+      }, 0);
+      const fromTxns = (creditTxns.data ?? []).reduce((s, t) => s + (t.amount ?? 0), 0);
+      return fromRecords + fromInvoices + fromTxns;
     },
   });
 
+  // ── Expenses: expense records + bills + reimbursements ───────────────────────
   const { data: periodExpenses = 0 } = useQuery({
     queryKey: ["close_period_expenses", orgId, fp?.id],
     enabled: !!orgId && !!range,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("expenses")
-        .select("amount")
-        .eq("organization_id", orgId)
-        .not("status", "eq", "rejected")
-        .gte("expense_date", range.from)
-        .lte("expense_date", range.to);
-      if (error) throw error;
-      return (data ?? []).reduce((s, r) => s + (r.amount ?? 0), 0);
+      const [expRecords, bills, reimbursements] = await Promise.all([
+        // Expense records
+        supabase
+          .from("expenses")
+          .select("amount")
+          .eq("organization_id", orgId)
+          .not("status", "eq", "rejected")
+          .gte("expense_date", range.from)
+          .lte("expense_date", range.to)
+          .is("deleted_at", null),
+        // Bills
+        supabase
+          .from("bills")
+          .select("amount")
+          .eq("organization_id", orgId)
+          .gte("bill_date", range.from)
+          .lte("bill_date", range.to)
+          .not("status", "eq", "void")
+          .is("deleted_at", null),
+        // Reimbursements
+        supabase
+          .from("reimbursement_requests")
+          .select("total_amount")
+          .eq("organization_id", orgId)
+          .gte("created_at", range.from)
+          .lte("created_at", range.to),
+      ]);
+      if (expRecords.error)     throw expRecords.error;
+      if (bills.error)          throw bills.error;
+      if (reimbursements.error) throw reimbursements.error;
+
+      const fromRecords = (expRecords.data     ?? []).reduce((s, e) => s + (e.amount ?? 0), 0);
+      const fromBills   = (bills.data          ?? []).reduce((s, b) => s + (b.amount ?? 0), 0);
+      const fromReimbs  = (reimbursements.data ?? []).reduce((s, r) => s + (r.total_amount ?? 0), 0);
+      return fromRecords + fromBills + fromReimbs;
     },
   });
 
