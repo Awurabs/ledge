@@ -9,7 +9,7 @@ import {
   useUpdateMember, useDeactivateMember, useReactivateMember,
   useCreateDepartment, useUpdateDepartment, useDeleteDepartment,
   useCreateTeam, useAddTeamMember, useRemoveTeamMember,
-  useInviteMember,
+  useInviteMember, usePendingInvitations,
 } from "../hooks/useMembers";
 import { useCards } from "../hooks/useCards";
 import { fmtDate } from "../lib/fmt";
@@ -433,6 +433,13 @@ function InviteModal({ departments, onClose }) {
 // PEOPLE TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function PeopleTab({ members, departments, cardsByMember, isLoading }) {
+  const { data: pendingInvites = [] } = usePendingInvitations();
+
+  // Build a dept id → name map for displaying pending invites' departments
+  const deptMap = useMemo(
+    () => departments.reduce((acc, d) => { acc[d.id] = d.name; return acc; }, {}),
+    [departments]
+  );
   const [selected,   setSelected]   = useState(null);
   const [showInvite, setShowInvite] = useState(false);
   const [search,     setSearch]     = useState("");
@@ -625,6 +632,57 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
           </p>
         </div>
       </div>
+
+      {/* ── Pending Invitations ─────────────────────────────────────── */}
+      {pendingInvites.length > 0 && (
+        <div className="mt-5 bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
+            <Clock size={14} className="text-amber-600" />
+            <p className="text-sm font-semibold text-amber-700">
+              Pending Invitations ({pendingInvites.length})
+            </p>
+            <span className="ml-2 text-xs text-amber-500">
+              Invite sent — waiting for the recipient to set their password
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-100">
+                  {["Email", "Role", "Department", "Invited", "Expires", "Status"].map(h => (
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {pendingInvites.map(inv => (
+                  <tr key={inv.id} className="border-b border-gray-100 last:border-0">
+                    <td className="px-4 py-3 font-medium text-gray-700">{inv.email}</td>
+                    <td className="px-4 py-3"><RoleBadge role={inv.role} /></td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">
+                      {deptMap[inv.department_id] ?? "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">
+                      {timeSince(inv.created_at)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">
+                      {fmtDate(inv.expires_at)}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-xs font-medium px-2.5 py-1 rounded-full border border-amber-200">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        Pending
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {selected && (
         <MemberDrawer

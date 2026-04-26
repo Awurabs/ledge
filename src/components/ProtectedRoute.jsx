@@ -18,5 +18,7 @@ export default function ProtectedRoute() {
 
   if (loading) return <AuthLoader />;
   if (!user)   return <Navigate to="/login" replace />;
+  // Invited users must set a password before accessing the app
+  if (user.user_metadata?.must_change_password) return <Navigate to="/reset-password" replace />;
   return <Outlet />;
 }

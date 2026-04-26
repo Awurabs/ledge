@@ -219,8 +219,31 @@ export function useRemoveTeamMember() {
   });
 }
 
+// ── Pending Invitations ──────────────────────────────────────────────────────
+export function usePendingInvitations() {
+  const { orgId } = useAuth();
+  return useQuery({
+    queryKey: ["pending_invitations", orgId],
+    enabled: !!orgId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("member_invitations")
+        .select("id, email, role, department_id, created_at, expires_at")
+        .eq("organization_id", orgId)
+        .is("accepted_at", null)
+        .is("revoked_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data ?? [];
+    },
+  });
+}
+
 // ── Invite ───────────────────────────────────────────────────────────────────
 export function useInviteMember() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ email, role, department_id }) => {
       const { data, error } = await supabase.functions.invoke("invite-member", {
@@ -239,5 +262,6 @@ export function useInviteMember() {
       if (data?.error) throw new Error(data.error);
       return data;
     },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pending_invitations", orgId] }),
   });
 }

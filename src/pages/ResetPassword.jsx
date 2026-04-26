@@ -2,9 +2,11 @@ import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
+  const { refreshUserData } = useAuth();
 
   const [form, setForm]         = useState({ password: "", confirm: "" });
   const [showPw, setShowPw]     = useState(false);
@@ -12,12 +14,41 @@ export default function ResetPassword() {
   const [error, setError]       = useState("");
   const [success, setSuccess]   = useState(false);
   const [validLink, setValidLink] = useState(false);
+  // isInvite = true when user arrived via an invitation (not a normal password reset)
+  const [isInvite, setIsInvite] = useState(false);
 
-  // Supabase fires PASSWORD_RECOVERY when user arrives via reset link
   useEffect(() => {
+    // ── 1. Detect invite via URL hash ──────────────────────────────────────
+    // Read the hash BEFORE Supabase JS clears it from the URL.
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (hashParams.get("type") === "invite") {
+      setValidLink(true);
+      setIsInvite(true);
+    }
+
+    // ── 2. Detect already-logged-in user who must change their password ────
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.user_metadata?.must_change_password) {
+        setValidLink(true);
+        setIsInvite(true);
+      }
+    });
+
+    // ── 3. Listen for auth events ──────────────────────────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event) => {
-        if (event === "PASSWORD_RECOVERY") setValidLink(true);
+      (event, session) => {
+        // Standard "forgot password" reset link
+        if (event === "PASSWORD_RECOVERY") {
+          setValidLink(true);
+        }
+        // Invite link: Supabase signs the user in then fires SIGNED_IN
+        if (
+          event === "SIGNED_IN" &&
+          session?.user?.user_metadata?.must_change_password
+        ) {
+          setValidLink(true);
+          setIsInvite(true);
+        }
       }
     );
     return () => subscription.unsubscribe();
@@ -36,14 +67,23 @@ export default function ResetPassword() {
     }
     setLoading(true);
     try {
+      // Update the password; clear the invite flag if present
       const { error: err } = await supabase.auth.updateUser({
         password: form.password,
+        ...(isInvite && { data: { must_change_password: false } }),
       });
       if (err) throw err;
+
+      // For invite flow: create the org membership + mark invitation accepted
+      if (isInvite) {
+        await supabase.rpc("accept_my_invitation");
+        refreshUserData();
+      }
+
       setSuccess(true);
-      setTimeout(() => navigate("/", { replace: true }), 2000);
+      setTimeout(() => navigate("/", { replace: true }), 1500);
     } catch (err) {
-      setError(err.message ?? "Could not reset password. Please request a new link.");
+      setError(err.message ?? "Could not update password. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -65,19 +105,27 @@ export default function ResetPassword() {
             <div className="w-14 h-14 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 size={28} className="text-green-500" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 mb-2">Password updated!</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              {isInvite ? "You're all set!" : "Password updated!"}
+            </h2>
             <p className="text-sm text-gray-500">Redirecting you to the dashboard…</p>
           </div>
         ) : (
           <>
-            <h1 className="text-2xl font-bold text-gray-900 mb-1">Set new password</h1>
-            <p className="text-sm text-gray-500 mb-8">Choose a strong password for your account.</p>
+            <h1 className="text-2xl font-bold text-gray-900 mb-1">
+              {isInvite ? "Welcome to Ledge!" : "Set new password"}
+            </h1>
+            <p className="text-sm text-gray-500 mb-8">
+              {isInvite
+                ? "You've been invited — create a password to access your account."
+                : "Choose a strong password for your account."}
+            </p>
 
             {!validLink && (
               <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-100 text-amber-700 text-sm rounded-lg p-3 mb-6">
                 <AlertCircle size={15} className="shrink-0 mt-0.5" />
                 <span>
-                  This page is only accessible via the reset link in your email.{" "}
+                  This page is only accessible via the link in your invitation or reset email.{" "}
                   <Link to="/forgot-password" className="underline font-medium">
                     Request a new link
                   </Link>
@@ -96,7 +144,8 @@ export default function ResetPassword() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  New password <span className="text-gray-400 font-normal">(min. 8 characters)</span>
+                  {isInvite ? "Create a password" : "New password"}{" "}
+                  <span className="text-gray-400 font-normal">(min. 8 characters)</span>
                 </label>
                 <div className="relative">
                   <input
@@ -120,7 +169,7 @@ export default function ResetPassword() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  Confirm new password
+                  Confirm password
                 </label>
                 <input
                   type={showPw ? "text" : "password"}
@@ -141,10 +190,10 @@ export default function ResetPassword() {
                 {loading ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    Updating…
+                    {isInvite ? "Setting up your account…" : "Updating…"}
                   </>
                 ) : (
-                  "Update password"
+                  isInvite ? "Create password & join" : "Update password"
                 )}
               </button>
             </form>
