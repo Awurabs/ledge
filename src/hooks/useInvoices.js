@@ -80,6 +80,7 @@ export function useCreateInvoice() {
           currency:        invoice.currency ?? "GHS",
           subtotal:        invoice.subtotal,
           tax_rate:        invoice.tax_rate ?? 0,
+          tax_breakdown:   invoice.tax_breakdown ?? [],
           tax_amount:      invoice.tax_amount ?? 0,
           discount_amount: invoice.discount_amount ?? 0,
           total_amount:    invoice.total_amount,

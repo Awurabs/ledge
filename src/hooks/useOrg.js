@@ -2,6 +2,19 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
+// ── Logo upload ───────────────────────────────────────────────────────────────
+// Uploads to the public `logos` bucket; returns the public URL.
+export async function uploadLogo(file, orgId) {
+  const ext  = file.name.split(".").pop().toLowerCase() || "png";
+  const path = `${orgId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error } = await supabase.storage
+    .from("logos")
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (error) throw error;
+  const { data } = supabase.storage.from("logos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 // ── Current user's profile ────────────────────────────────────────────────────
 export function useProfile() {
   const { user } = useAuth();

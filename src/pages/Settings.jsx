@@ -1,14 +1,15 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   User, Building2, Users, Briefcase, Calculator,
   FileText, Bell, Plug, CreditCard,
   Check, AlertCircle, Plus, Trash2, LogOut,
-  ExternalLink, Pencil,
+  ExternalLink, Pencil, Upload, X as XIcon, ImageIcon,
 } from "lucide-react";
 import {
   useOrganization, useUpdateOrganization,
   useOrgSettings, useUpdateOrgSettings,
   useProfile, useUpdateProfile,
+  uploadLogo,
 } from "../hooks/useOrg";
 import {
   useMembers, useDepartments, useUpdateMember,
@@ -452,12 +453,11 @@ function OrganizationTab() {
               onChange={(e) => setForm({ ...form, website: e.target.value })}
             />
           </Field>
-          <Field label="Logo URL" full hint="Public URL of your company logo. Used across the app and on invoices.">
-            <input
-              className={inputCls}
-              placeholder="https://…/logo.png"
+          <Field label="Company Logo" full hint="Shown across the app and on invoices as a fallback when no invoice-specific logo is set.">
+            <LogoUploadField
               value={form.logo_url}
-              onChange={(e) => setForm({ ...form, logo_url: e.target.value })}
+              onChange={(url) => setForm({ ...form, logo_url: url })}
+              orgId={org?.id}
             />
           </Field>
         </div>
@@ -814,6 +814,124 @@ function DepartmentsTab() {
         </div>
       )}
     </Card>
+  );
+}
+
+// ── LogoUploadField ───────────────────────────────────────────────────────────
+// Reusable component: shows a preview + click-to-upload + manual URL fallback.
+// `value`    = current URL string
+// `onChange` = (newUrl) => void
+// `orgId`    = used to namespace the upload path
+
+function LogoUploadField({ value, onChange, orgId, hint }) {
+  const fileRef   = useRef(null);
+  const [uploading, setUploading] = useState(false);
+  const [error,     setError]     = useState(null);
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // 2 MB guard
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Image must be under 2 MB.");
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      const url = await uploadLogo(file, orgId);
+      onChange(url);
+    } catch (err) {
+      setError(err.message ?? "Upload failed. Please try again.");
+    } finally {
+      setUploading(false);
+      // reset so the same file can be re-selected if needed
+      e.target.value = "";
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Upload zone */}
+      <div
+        onClick={() => !uploading && fileRef.current?.click()}
+        className={`relative flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition-colors ${
+          uploading
+            ? "border-green-300 bg-green-50"
+            : "border-gray-200 hover:border-green-400 hover:bg-green-50/40"
+        }`}
+      >
+        {/* Thumbnail */}
+        <div className="w-12 h-12 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden">
+          {value ? (
+            <img
+              src={value}
+              alt="Logo"
+              className="w-full h-full object-contain"
+              onError={(e) => { e.currentTarget.style.display = "none"; e.currentTarget.nextSibling.style.display = "flex"; }}
+            />
+          ) : null}
+          <div className={`w-full h-full items-center justify-center ${value ? "hidden" : "flex"}`}>
+            <ImageIcon size={20} className="text-gray-300" />
+          </div>
+        </div>
+
+        {/* Label */}
+        <div className="flex-1 min-w-0">
+          {uploading ? (
+            <p className="text-sm font-medium text-green-600">Uploading…</p>
+          ) : value ? (
+            <>
+              <p className="text-sm font-medium text-gray-700 truncate">{value.split("/").pop()}</p>
+              <p className="text-xs text-gray-400">Click to replace</p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-gray-700">Click to upload</p>
+              <p className="text-xs text-gray-400">PNG, JPG, WebP or SVG · max 2 MB</p>
+            </>
+          )}
+        </div>
+
+        {/* Upload icon / spinner */}
+        <div className="shrink-0">
+          {uploading ? (
+            <div className="w-5 h-5 border-2 border-green-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Upload size={16} className="text-gray-400" />
+          )}
+        </div>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+          className="hidden"
+          onChange={handleFile}
+        />
+      </div>
+
+      {/* Clear button */}
+      {value && !uploading && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors"
+        >
+          <XIcon size={12} /> Remove logo
+        </button>
+      )}
+
+      {/* Error */}
+      {error && (
+        <p className="flex items-center gap-1 text-xs text-red-600">
+          <AlertCircle size={12} /> {error}
+        </p>
+      )}
+
+      {/* Optional hint */}
+      {hint && <p className="text-xs text-gray-400">{hint}</p>}
+    </div>
   );
 }
 
@@ -1276,6 +1394,7 @@ function InvoicePreviewSample({ color, logoUrl, footerText, orgName, orgTin, tax
 // ── Invoicing Tab ─────────────────────────────────────────────────────────────
 
 function InvoicingTab() {
+  const { orgId }                     = useAuth();
   const { data: settings, isLoading } = useOrgSettings();
   const { data: org }                 = useOrganization();
   const updateSettings = useUpdateOrgSettings();
@@ -1336,12 +1455,11 @@ function InvoicingTab() {
         />
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Invoice Logo URL" full hint="Paste a public image URL. Leave blank to use your company logo from the Organization tab.">
-            <input
-              className={inputCls}
-              placeholder="https://…/invoice-logo.png"
+          <Field label="Invoice Logo" full hint="Upload a logo specific to invoices. Leave blank to use your company logo from the Organization tab.">
+            <LogoUploadField
               value={form.invoice_logo_url}
-              onChange={(e) => setForm({ ...form, invoice_logo_url: e.target.value })}
+              onChange={(url) => setForm({ ...form, invoice_logo_url: url })}
+              orgId={orgId}
             />
           </Field>
 
