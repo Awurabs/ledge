@@ -3,6 +3,18 @@ import { useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// STRATEGY: never use PostgREST nested-join syntax for profiles.
+// organization_members has two FKs to profiles (user_id + invited_by), so any
+// embedded select risks an HTTP 300 "Multiple Choices" error.
+//
+// Instead every hook that needs profile data:
+//   1. Fetches the base table with simple filters (no embed for profiles)
+//   2. Collects the relevant user_id list
+//   3. Fetches profiles separately with .in("id", [...])
+//   4. Merges in JavaScript
+// ─────────────────────────────────────────────────────────────────────────────
+
 // ── Members ───────────────────────────────────────────────────────────────────
 export function useMembers(filters = {}) {
   const { orgId } = useAuth();
@@ -30,15 +42,15 @@ export function useMembers(filters = {}) {
   return useQuery({
     queryKey: ["members", orgId, filters],
     enabled: !!orgId,
-    staleTime: 0,               // always re-fetch on mount; real-time handles in-page updates
-    refetchOnWindowFocus: true, // re-fetch when user switches back to the tab
+    staleTime: 0,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
+      // ── Step 1: fetch members (flat — no profile embed) ───────────────────
       let q = supabase
         .from("organization_members")
         .select(`
           id, role, department_id, invited_by, accepted_at, deactivated_at,
           created_at, updated_at, organization_id, user_id,
-          profiles:profiles!user_id ( id, full_name, avatar_url, phone, job_title, last_seen_at ),
           departments ( id, name, code )
         `)
         .eq("organization_id", orgId)
@@ -48,9 +60,28 @@ export function useMembers(filters = {}) {
       if (filters.departmentId) q = q.eq("department_id", filters.departmentId);
       if (filters.activeOnly)   q = q.is("deactivated_at", null);
 
-      const { data, error } = await q;
-      if (error) throw error;
-      return data ?? [];
+      const { data: members, error: membersError } = await q;
+      if (membersError) throw membersError;
+      if (!members || members.length === 0) return [];
+
+      // ── Step 2: collect unique user_ids ───────────────────────────────────
+      const userIds = [...new Set(members.map((m) => m.user_id).filter(Boolean))];
+      if (userIds.length === 0) return members.map((m) => ({ ...m, profiles: null }));
+
+      // ── Step 3: fetch profiles separately ────────────────────────────────
+      const { data: profiles, error: profilesError } = await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url, phone, job_title, last_seen_at")
+        .in("id", userIds);
+
+      if (profilesError) throw profilesError;
+
+      // ── Step 4: merge profiles into members by user_id ────────────────────
+      const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+      return members.map((m) => ({
+        ...m,
+        profiles: m.user_id ? (profileMap[m.user_id] ?? null) : null,
+      }));
     },
   });
 }
@@ -82,27 +113,83 @@ export function useTeams() {
     enabled: !!orgId,
     staleTime: 0,
     queryFn: async () => {
-      const { data, error } = await supabase
+      // ── Step 1: fetch teams (flat) ────────────────────────────────────────
+      const { data: teams, error: teamsError } = await supabase
         .from("teams")
-        .select(`
-          *,
-          lead:organization_members!lead_id (
-            id,
-            profiles ( id, full_name, avatar_url )
-          ),
-          team_members (
-            id,
-            member:organization_members (
-              id,
-              profiles ( id, full_name, avatar_url )
-            )
-          )
-        `)
+        .select("id, name, description, lead_id, is_active, created_at")
         .eq("organization_id", orgId)
         .eq("is_active", true)
         .order("name");
-      if (error) throw error;
-      return data ?? [];
+
+      if (teamsError) throw teamsError;
+      if (!teams || teams.length === 0) return [];
+
+      const teamIds = teams.map((t) => t.id);
+
+      // ── Step 2: fetch team_members for all these teams ────────────────────
+      const { data: teamMembers, error: tmError } = await supabase
+        .from("team_members")
+        .select("id, team_id, member_id")
+        .in("team_id", teamIds);
+
+      if (tmError) throw tmError;
+
+      // ── Step 3: collect all org-member ids we need (leads + members) ──────
+      const leadOrgMemberIds = teams.map((t) => t.lead_id).filter(Boolean);
+      const memberOrgMemberIds = (teamMembers ?? []).map((tm) => tm.member_id).filter(Boolean);
+      const allOrgMemberIds = [...new Set([...leadOrgMemberIds, ...memberOrgMemberIds])];
+
+      if (allOrgMemberIds.length === 0) {
+        // No members at all — return teams with empty member lists
+        return teams.map((t) => ({ ...t, lead: null, team_members: [] }));
+      }
+
+      // ── Step 4: fetch org members (just id + user_id) ────────────────────
+      const { data: orgMembers, error: omError } = await supabase
+        .from("organization_members")
+        .select("id, user_id")
+        .in("id", allOrgMemberIds);
+
+      if (omError) throw omError;
+
+      // ── Step 5: collect unique user_ids ───────────────────────────────────
+      const userIds = [...new Set((orgMembers ?? []).map((om) => om.user_id).filter(Boolean))];
+
+      // ── Step 6: fetch profiles ────────────────────────────────────────────
+      let profileMap = {};
+      if (userIds.length > 0) {
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("id, full_name, avatar_url")
+          .in("id", userIds);
+
+        if (profilesError) throw profilesError;
+        profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]));
+      }
+
+      // ── Step 7: build org-member → profile lookup ─────────────────────────
+      const orgMemberProfileMap = Object.fromEntries(
+        (orgMembers ?? []).map((om) => [
+          om.id,
+          {
+            id: om.id,
+            profiles: om.user_id ? (profileMap[om.user_id] ?? null) : null,
+          },
+        ])
+      );
+
+      // ── Step 8: assemble final shape ──────────────────────────────────────
+      return teams.map((team) => {
+        const lead = team.lead_id ? (orgMemberProfileMap[team.lead_id] ?? null) : null;
+        const members = (teamMembers ?? [])
+          .filter((tm) => tm.team_id === team.id)
+          .map((tm) => ({
+            id: tm.id,
+            member: orgMemberProfileMap[tm.member_id] ?? null,
+          }));
+
+        return { ...team, lead, team_members: members };
+      });
     },
   });
 }
