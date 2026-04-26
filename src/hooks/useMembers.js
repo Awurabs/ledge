@@ -25,6 +25,7 @@ export function useMembers(filters = {}) {
   return useQuery({
     queryKey: ["members", orgId, filters],
     enabled: !!orgId,
+    staleTime: 0,          // always re-fetch on mount (real-time sub handles in-page updates)
     queryFn: async () => {
       let q = supabase
         .from("organization_members")
