@@ -1,9 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 
 export function useMembers(filters = {}) {
   const { orgId } = useAuth();
+  const qc = useQueryClient();
+
+  // Real-time: invalidate cache whenever organization_members changes so the
+  // People page updates immediately when a new member accepts an invitation.
+  useEffect(() => {
+    if (!orgId) return;
+    const channel = supabase
+      .channel(`org-members-${orgId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "organization_members", filter: `organization_id=eq.${orgId}` },
+        () => qc.invalidateQueries({ queryKey: ["members", orgId] }),
+      )
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [orgId, qc]);
+
   return useQuery({
     queryKey: ["members", orgId, filters],
     enabled: !!orgId,
@@ -222,6 +240,22 @@ export function useRemoveTeamMember() {
 // ── Pending Invitations ──────────────────────────────────────────────────────
 export function usePendingInvitations() {
   const { orgId } = useAuth();
+  const qc = useQueryClient();
+
+  // Real-time: invalidate when invitations table changes
+  useEffect(() => {
+    if (!orgId) return;
+    const channel = supabase
+      .channel(`org-invitations-${orgId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "member_invitations", filter: `organization_id=eq.${orgId}` },
+        () => qc.invalidateQueries({ queryKey: ["pending_invitations", orgId] }),
+      )
+      .subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [orgId, qc]);
+
   return useQuery({
     queryKey: ["pending_invitations", orgId],
     enabled: !!orgId,
@@ -237,6 +271,30 @@ export function usePendingInvitations() {
       if (error) throw error;
       return data ?? [];
     },
+  });
+}
+
+// ── Revoke Invitation ────────────────────────────────────────────────────────
+export function useRevokeInvitation() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ invitation_id }) => {
+      const { data, error } = await supabase.functions.invoke("revoke-invitation", {
+        body: { invitation_id },
+      });
+      if (error) {
+        let message = "Failed to revoke invitation.";
+        try {
+          const body = await error.context?.json?.();
+          if (body?.error) message = body.error;
+        } catch (_) { /* fall through */ }
+        throw new Error(message);
+      }
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["pending_invitations", orgId] }),
   });
 }
 

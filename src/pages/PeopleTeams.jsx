@@ -9,7 +9,7 @@ import {
   useUpdateMember, useDeactivateMember, useReactivateMember,
   useCreateDepartment, useUpdateDepartment, useDeleteDepartment,
   useCreateTeam, useAddTeamMember, useRemoveTeamMember,
-  useInviteMember, usePendingInvitations,
+  useInviteMember, usePendingInvitations, useRevokeInvitation,
 } from "../hooks/useMembers";
 import { useCards } from "../hooks/useCards";
 import { fmtDate } from "../lib/fmt";
@@ -434,6 +434,7 @@ function InviteModal({ departments, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function PeopleTab({ members, departments, cardsByMember, isLoading }) {
   const { data: pendingInvites = [] } = usePendingInvitations();
+  const revokeMut = useRevokeInvitation();
 
   // Build a dept id → name map for displaying pending invites' departments
   const deptMap = useMemo(
@@ -649,7 +650,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
-                  {["Email", "Role", "Department", "Invited", "Expires", "Status"].map(h => (
+                  {["Email", "Role", "Department", "Invited", "Expires", "Status", ""].map(h => (
                     <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                       {h}
                     </th>
@@ -658,7 +659,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
               </thead>
               <tbody>
                 {pendingInvites.map(inv => (
-                  <tr key={inv.id} className="border-b border-gray-100 last:border-0">
+                  <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-medium text-gray-700">{inv.email}</td>
                     <td className="px-4 py-3"><RoleBadge role={inv.role} /></td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
@@ -675,6 +676,20 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                         Pending
                       </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Cancel invitation for ${inv.email}?`)) {
+                            revokeMut.mutate({ invitation_id: inv.id });
+                          }
+                        }}
+                        disabled={revokeMut.isPending}
+                        title="Cancel invitation"
+                        className="text-gray-300 hover:text-red-500 transition-colors disabled:opacity-40"
+                      >
+                        <Trash2 size={14} />
+                      </button>
                     </td>
                   </tr>
                 ))}
