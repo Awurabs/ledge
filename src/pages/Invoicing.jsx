@@ -11,6 +11,7 @@ import {
   useDeleteInvoice,
 } from "../hooks/useInvoices";
 import { useContacts, useCreateContact } from "../hooks/useContacts";
+import { useOrgSettings } from "../hooks/useOrg";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -738,28 +739,56 @@ function ContactCombobox({ contacts, value, onChange, onAddNew }) {
 const emptyItem = () => ({ description: "", quantity: "1", unit_price: "" });
 
 function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, isSaving }) {
-  const [step, setStep]   = useState(1);
-  const [contact, setContact] = useState(null);
-  const [form, setForm]   = useState({
+  const [step, setStep]         = useState(1);
+  const [contact, setContact]   = useState(null);
+  const [taxesInited, setTaxesInited] = useState(false);
+  const [form, setForm]         = useState({
     issue_date:    new Date().toISOString().slice(0, 10),
     due_date:      "",
     payment_terms: "Net 30",
     tax_rate:      "0",
+    taxes:         [],   // [{ id, name, rate, enabled }] when using named tax types
     notes:         "",
     footer:        "",
     items:         [emptyItem()],
   });
 
+  const { data: orgSettings } = useOrgSettings();
+  const savedTaxTypes = orgSettings?.tax_rates ?? [];
+  const usingNamedTaxes = savedTaxTypes.length > 0;
+
+  // Initialise taxes from org settings once loaded
   const upd     = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const updItem = (i, k, v) => setForm((f) => ({
     ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it),
   }));
 
+  useState(() => {
+    // note: using the setter as an effect-like initializer is intentional —
+    // we only want to run once after orgSettings loads
+  });
+
+  // Sync org settings into form once on first load
+  if (orgSettings && !taxesInited) {
+    setTaxesInited(true);
+    if (savedTaxTypes.length > 0) {
+      setForm((f) => ({ ...f, taxes: savedTaxTypes.map((t) => ({ ...t, enabled: true })) }));
+    } else {
+      setForm((f) => ({ ...f, tax_rate: String(orgSettings.default_tax_rate ?? "0") }));
+    }
+  }
+
   const lineAmounts = form.items.map((it) =>
     Math.round((parseFloat(it.quantity) || 0) * (parseFloat(it.unit_price) || 0) * 100)
   );
   const subtotalMinor = lineAmounts.reduce((s, a) => s + a, 0);
-  const taxMinor      = Math.round(subtotalMinor * (parseFloat(form.tax_rate) || 0) / 100);
+
+  // Effective tax rate: sum of enabled named taxes, or direct input
+  const activeTaxes       = usingNamedTaxes ? (form.taxes ?? []).filter((t) => t.enabled) : [];
+  const effectiveTaxRate  = usingNamedTaxes
+    ? activeTaxes.reduce((s, t) => s + (parseFloat(t.rate) || 0), 0)
+    : (parseFloat(form.tax_rate) || 0);
+  const taxMinor      = Math.round(subtotalMinor * effectiveTaxRate / 100);
   const totalMinor    = subtotalMinor + taxMinor;
 
   const validItems  = form.items.filter((it) => it.description.trim() && it.unit_price);
@@ -772,7 +801,7 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, is
         issue_date:      form.issue_date,
         due_date:        form.due_date || null,
         payment_terms:   form.payment_terms,
-        tax_rate:        parseFloat(form.tax_rate) || 0,
+        tax_rate:        effectiveTaxRate,
         subtotal:        subtotalMinor,
         tax_amount:      taxMinor,
         discount_amount: 0,
@@ -936,18 +965,82 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, is
               {/* Subtotals preview */}
               {subtotalMinor > 0 && (
                 <div className="mt-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100">
-                  <div className="flex justify-between text-sm text-gray-600 mb-1">
+                  <div className="flex justify-between text-sm text-gray-600 mb-3">
                     <span>Subtotal</span>
                     <span className="tabular-nums">{fmt(subtotalMinor, currency)}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input type="number" min="0" max="100" step="0.5" value={form.tax_rate}
-                      onChange={(e) => upd("tax_rate", e.target.value)}
-                      className="w-16 border border-green-200 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-400 bg-white" />
-                    <span className="text-sm text-gray-500">% tax</span>
-                    {taxMinor > 0 && <span className="text-sm text-gray-600 ml-auto tabular-nums">{fmt(taxMinor, currency)}</span>}
-                  </div>
-                  <div className="flex justify-between font-bold text-gray-900 mt-2 pt-2 border-t border-green-200">
+
+                  {/* ── Named tax types ── */}
+                  {usingNamedTaxes ? (
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-2">Tax</p>
+                      <div className="space-y-2">
+                        {(form.taxes ?? []).map((tax, i) => {
+                          const taxAmt = Math.round(subtotalMinor * (parseFloat(tax.rate) || 0) / 100);
+                          return (
+                            <div key={tax.id} className="flex items-center gap-2">
+                              {/* Checkbox toggle */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const next = [...(form.taxes ?? [])];
+                                  next[i] = { ...next[i], enabled: !next[i].enabled };
+                                  upd("taxes", next);
+                                }}
+                                className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                                  tax.enabled
+                                    ? "bg-green-500 border-green-500"
+                                    : "border-gray-300 bg-white"
+                                }`}
+                              >
+                                {tax.enabled && <Check size={10} className="text-white" />}
+                              </button>
+                              {/* Name */}
+                              <span className={`text-sm flex-1 ${tax.enabled ? "text-gray-800 font-medium" : "text-gray-400"}`}>
+                                {tax.name}
+                              </span>
+                              {/* Rate (editable per-invoice) */}
+                              <input
+                                type="number" min="0" max="100" step="0.01"
+                                value={tax.rate}
+                                onChange={(e) => {
+                                  const next = [...(form.taxes ?? [])];
+                                  next[i] = { ...next[i], rate: e.target.value };
+                                  upd("taxes", next);
+                                }}
+                                disabled={!tax.enabled}
+                                className="w-16 border border-green-200 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-400 bg-white disabled:opacity-40 disabled:bg-gray-50 tabular-nums"
+                              />
+                              <span className="text-xs text-gray-500">%</span>
+                              {/* Per-tax amount */}
+                              {tax.enabled && taxAmt > 0 && (
+                                <span className="text-xs text-gray-500 tabular-nums w-20 text-right">
+                                  {fmt(taxAmt, currency)}
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {taxMinor > 0 && (
+                        <div className="flex justify-between text-sm text-gray-600 mt-3 pt-2 border-t border-green-100">
+                          <span>Total Tax ({effectiveTaxRate % 1 === 0 ? effectiveTaxRate : effectiveTaxRate.toFixed(2)}%)</span>
+                          <span className="tabular-nums">{fmt(taxMinor, currency)}</span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* ── Simple rate input (no named types saved) ── */
+                    <div className="flex items-center gap-2">
+                      <input type="number" min="0" max="100" step="0.5" value={form.tax_rate}
+                        onChange={(e) => upd("tax_rate", e.target.value)}
+                        className="w-16 border border-green-200 rounded-md px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-green-400 bg-white" />
+                      <span className="text-sm text-gray-500">% tax</span>
+                      {taxMinor > 0 && <span className="text-sm text-gray-600 ml-auto tabular-nums">{fmt(taxMinor, currency)}</span>}
+                    </div>
+                  )}
+
+                  <div className="flex justify-between font-bold text-gray-900 mt-3 pt-2 border-t border-green-200">
                     <span>Total</span>
                     <span className="text-green-600 text-base tabular-nums">{fmt(totalMinor, currency)}</span>
                   </div>
@@ -980,7 +1073,13 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, is
                   { label: "Payment Terms", value: form.payment_terms },
                   { label: "Line Items",   value: `${validItems.length} item${validItems.length !== 1 ? "s" : ""}` },
                   { label: "Subtotal",     value: fmt(subtotalMinor, currency) },
-                  form.tax_rate > 0 && { label: `Tax (${form.tax_rate}%)`, value: fmt(taxMinor, currency) },
+                  ...(usingNamedTaxes
+                    ? activeTaxes.map((t) => ({
+                        label: `${t.name} (${t.rate}%)`,
+                        value: fmt(Math.round(subtotalMinor * (parseFloat(t.rate) || 0) / 100), currency),
+                      }))
+                    : [parseFloat(form.tax_rate) > 0 && { label: `Tax (${form.tax_rate}%)`, value: fmt(taxMinor, currency) }]
+                  ).filter(Boolean),
                   { label: "Total",        value: fmt(totalMinor, currency), bold: true },
                 ].filter(Boolean).map(({ label, value, bold }) => (
                   <div key={label} className="flex justify-between px-4 py-2.5">

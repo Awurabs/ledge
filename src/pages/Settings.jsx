@@ -817,6 +817,192 @@ function DepartmentsTab() {
   );
 }
 
+// ── Tax Types Manager ─────────────────────────────────────────────────────────
+
+function TaxTypesManager({ settings, updateSettings }) {
+  const taxTypes = settings?.tax_rates ?? [];
+  const [editing, setEditing] = useState(null); // tax id | "new" | null
+  const [form, setForm]       = useState({ name: "", rate: "" });
+  const [saving, setSaving]   = useState(false);
+
+  const openNew  = () => { setEditing("new"); setForm({ name: "", rate: "" }); };
+  const openEdit = (t) => { setEditing(t.id); setForm({ name: t.name, rate: String(t.rate) }); };
+  const cancel   = () => { setEditing(null); setForm({ name: "", rate: "" }); };
+
+  const isFormValid = form.name.trim() && form.rate !== "" && !isNaN(parseFloat(form.rate));
+
+  const save = () => {
+    if (!isFormValid) return;
+    const rate = parseFloat(form.rate);
+    let next;
+    if (editing === "new") {
+      next = [...taxTypes, { id: crypto.randomUUID(), name: form.name.trim(), rate }];
+    } else {
+      next = taxTypes.map((t) => t.id === editing ? { ...t, name: form.name.trim(), rate } : t);
+    }
+    setSaving(true);
+    updateSettings.mutate({ tax_rates: next }, {
+      onSuccess: () => { setSaving(false); cancel(); },
+      onError:   () =>  setSaving(false),
+    });
+  };
+
+  const remove = (id) => {
+    if (!window.confirm("Remove this tax type? It won't affect existing invoices.")) return;
+    updateSettings.mutate({ tax_rates: taxTypes.filter((t) => t.id !== id) });
+  };
+
+  return (
+    <Card className="mt-4">
+      <SectionHeader
+        title="Tax Types"
+        description="Define named tax rates to apply when creating invoices. All saved types appear in the invoice builder."
+      />
+
+      {taxTypes.length > 0 && (
+        <div className="border border-gray-100 rounded-xl overflow-hidden mb-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-100">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wide">Rate</th>
+                <th className="w-20" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {taxTypes.map((t) =>
+                editing === t.id ? (
+                  <tr key={t.id} className="bg-green-50/40">
+                    <td className="px-3 py-2">
+                      <input
+                        autoFocus
+                        className={inputCls}
+                        value={form.name}
+                        onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="e.g. VAT"
+                        onKeyDown={(e) => e.key === "Enter" && save()}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number" min="0" max="100" step="0.01"
+                          className="w-20 border border-gray-200 rounded-lg px-2.5 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-300"
+                          value={form.rate}
+                          onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+                          placeholder="0.00"
+                          onKeyDown={(e) => e.key === "Enter" && save()}
+                        />
+                        <span className="text-xs text-gray-400">%</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={save}
+                          disabled={saving || !isFormValid}
+                          className="px-2.5 py-1.5 bg-green-500 text-white text-xs font-semibold rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={cancel}
+                          className="px-2.5 py-1.5 bg-white text-gray-600 text-xs rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={t.id} className="hover:bg-gray-50/50">
+                    <td className="px-4 py-3 font-medium text-gray-800">{t.name}</td>
+                    <td className="px-4 py-3 text-gray-600 tabular-nums">{t.rate}%</td>
+                    <td className="px-3 py-2">
+                      <div className="flex gap-1 justify-end">
+                        <button
+                          onClick={() => openEdit(t)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 rounded transition-colors"
+                          title="Edit"
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => remove(t.id)}
+                          disabled={updateSettings.isPending}
+                          className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors disabled:opacity-50"
+                          title="Remove"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {taxTypes.length === 0 && editing !== "new" && (
+        <p className="text-sm text-gray-400 mb-4 text-center py-6 border border-dashed border-gray-200 rounded-xl">
+          No tax types yet. Add one below.
+        </p>
+      )}
+
+      {editing === "new" ? (
+        <div className="flex items-end gap-3 p-4 bg-green-50 rounded-xl border border-green-100">
+          <div className="flex-1">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Tax Name</label>
+            <input
+              autoFocus
+              className={inputCls}
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="e.g. VAT, NHIL, GST, Withholding Tax"
+              onKeyDown={(e) => e.key === "Enter" && save()}
+            />
+          </div>
+          <div className="w-28">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Rate (%)</label>
+            <input
+              type="number" min="0" max="100" step="0.01"
+              className={inputCls}
+              value={form.rate}
+              onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+              placeholder="0.00"
+              onKeyDown={(e) => e.key === "Enter" && save()}
+            />
+          </div>
+          <div className="flex gap-2 pb-0.5">
+            <button
+              onClick={save}
+              disabled={saving || !isFormValid}
+              className="px-4 py-2 bg-green-500 text-white text-sm font-semibold rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Adding…" : "Add"}
+            </button>
+            <button
+              onClick={cancel}
+              className="px-4 py-2 bg-white text-gray-600 text-sm rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={openNew}
+          className="flex items-center gap-2 text-sm font-semibold text-green-600 hover:text-green-700 transition-colors"
+        >
+          <Plus size={15} /> Add Tax Type
+        </button>
+      )}
+    </Card>
+  );
+}
+
 // ── Finance Tab ───────────────────────────────────────────────────────────────
 
 function FinanceTab() {
@@ -876,6 +1062,7 @@ function FinanceTab() {
   };
 
   return (
+    <>
     <Card>
       <SectionHeader
         title="Finance preferences"
@@ -958,6 +1145,9 @@ function FinanceTab() {
         />
       </div>
     </Card>
+
+    <TaxTypesManager settings={settings} updateSettings={updateSettings} />
+    </>
   );
 }
 
