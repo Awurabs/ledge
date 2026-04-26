@@ -1151,10 +1151,133 @@ function FinanceTab() {
   );
 }
 
+// ── Invoice sample preview ────────────────────────────────────────────────────
+
+function InvoicePreviewSample({ color, logoUrl, footerText, orgName, orgTin, taxRates, defaultTaxRate }) {
+  const name      = orgName || "Your Company";
+  const SUBTOTAL  = 400000; // minor units, 4000.00
+  const fmtN      = (n) => `GH₵ ${((n ?? 0) / 100).toLocaleString("en", { minimumFractionDigits: 2 })}`;
+  const taxLines  = (taxRates ?? []).length > 0
+    ? (taxRates ?? []).map((t) => ({ name: t.name, rate: t.rate, amount: Math.round(SUBTOTAL * (t.rate || 0) / 100) }))
+    : defaultTaxRate > 0
+      ? [{ name: "Tax", rate: defaultTaxRate, amount: Math.round(SUBTOTAL * defaultTaxRate / 100) }]
+      : [];
+  const taxTotal  = taxLines.reduce((s, t) => s + t.amount, 0);
+  const total     = SUBTOTAL + taxTotal;
+  const ITEMS     = [
+    { desc: "Website design & development", qty: 1, total: 250000 },
+    { desc: "Monthly maintenance (3 mo.)",  qty: 3, total: 150000 },
+  ];
+
+  return (
+    <div className="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200 text-[11px] leading-relaxed">
+      {/* Header */}
+      <div className="px-5 py-4 flex items-start justify-between" style={{ background: color }}>
+        <div className="flex items-center gap-2">
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-7 w-auto object-contain rounded"
+              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+          ) : (
+            <div className="w-7 h-7 bg-white/25 rounded-lg flex items-center justify-center text-white font-black text-sm">
+              {name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div>
+            <p className="text-white font-bold text-xs leading-tight">{name}</p>
+            {orgTin && <p className="text-white/70 text-[10px]">TIN: {orgTin}</p>}
+          </div>
+        </div>
+        <div className="text-right">
+          <p className="text-white/70 text-[9px] uppercase tracking-widest mb-0.5">Invoice</p>
+          <p className="text-white font-black text-sm">INV-2026-0001</p>
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="px-5 py-4">
+        {/* Bill to / dates */}
+        <div className="flex justify-between mb-4">
+          <div>
+            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Bill To</p>
+            <p className="font-bold text-gray-900 text-xs">Acme Limited</p>
+            <p className="text-gray-500">acme@example.com</p>
+          </div>
+          <div className="text-right text-gray-500 space-y-0.5">
+            <p><span className="text-gray-400">Issue:</span> 01 May 2026</p>
+            <p><span className="text-gray-400">Due:</span>   31 May 2026</p>
+            <p><span className="text-gray-400">Terms:</span> Net 30</p>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="h-px bg-gray-100 mb-3" />
+
+        {/* Line items */}
+        <table className="w-full mb-3">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="text-left py-1.5 px-2 text-[9px] font-bold text-gray-400 uppercase rounded-l">Description</th>
+              <th className="text-right py-1.5 px-2 text-[9px] font-bold text-gray-400 uppercase">Qty</th>
+              <th className="text-right py-1.5 px-2 text-[9px] font-bold text-gray-400 uppercase rounded-r">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ITEMS.map((it, i) => (
+              <tr key={i} className="border-b border-gray-50">
+                <td className="py-1.5 px-2 text-gray-700">{it.desc}</td>
+                <td className="py-1.5 px-2 text-right text-gray-500">{it.qty}</td>
+                <td className="py-1.5 px-2 text-right font-semibold text-gray-900">{fmtN(it.total)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Totals */}
+        <div className="flex justify-end mb-4">
+          <div className="w-44 space-y-0.5">
+            <div className="flex justify-between text-gray-500">
+              <span>Subtotal</span><span className="tabular-nums">{fmtN(SUBTOTAL)}</span>
+            </div>
+            {taxLines.map((t, i) => (
+              <div key={i} className="flex justify-between text-gray-500">
+                <span>{t.name} ({t.rate}%)</span>
+                <span className="tabular-nums">{fmtN(t.amount)}</span>
+              </div>
+            ))}
+            <div className="h-px bg-gray-200 my-1" />
+            <div className="flex justify-between font-bold text-gray-900 rounded px-2 py-1 bg-green-50">
+              <span>Total</span>
+              <span className="tabular-nums" style={{ color: color }}>{fmtN(total)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes placeholder */}
+        <div className="bg-gray-50 rounded-lg p-2.5 mb-4">
+          <p className="text-[9px] font-bold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
+          <p className="text-gray-500">Please pay within 30 days. Thank you!</p>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 pt-3 space-y-1.5">
+          {footerText && (
+            <p className="text-[10px] text-gray-500 whitespace-pre-line">{footerText}</p>
+          )}
+          <div className="flex justify-between">
+            <p className="text-[9px] text-gray-400">{name}{orgTin ? ` · TIN: ${orgTin}` : ""}</p>
+            <p className="text-[9px] text-gray-300 font-mono">INV-2026-0001</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Invoicing Tab ─────────────────────────────────────────────────────────────
 
 function InvoicingTab() {
   const { data: settings, isLoading } = useOrgSettings();
+  const { data: org }                 = useOrganization();
   const updateSettings = useUpdateOrgSettings();
 
   const [form, setForm] = useState(null);
@@ -1175,12 +1298,15 @@ function InvoicingTab() {
 
   if (isLoading || !form) {
     return (
-      <Card>
-        <Skeleton className="h-6 w-40 mb-4" />
-        <div className="space-y-3">
-          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-        </div>
-      </Card>
+      <div className="grid grid-cols-[1fr_340px] gap-6">
+        <Card>
+          <Skeleton className="h-6 w-40 mb-4" />
+          <div className="space-y-3">
+            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+          </div>
+        </Card>
+        <Skeleton className="h-[480px] rounded-xl" />
+      </div>
     );
   }
 
@@ -1195,91 +1321,87 @@ function InvoicingTab() {
     });
   };
 
+  // Resolve effective logo: invoice-specific override first, then org logo
+  const previewLogo    = form.invoice_logo_url || org?.logo_url || "";
+  const previewOrgName = org?.name ?? "Your Company";
+  const previewTin     = org?.tin  ?? "";
+
   return (
-    <Card>
-      <SectionHeader
-        title="Invoice branding"
-        description="Customise how invoices look when you send them to customers."
-      />
+    <div className="grid grid-cols-[1fr_340px] gap-6 items-start">
+      {/* Left – settings form */}
+      <Card>
+        <SectionHeader
+          title="Invoice branding"
+          description="Customise how invoices look when you send them to customers."
+        />
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Invoice Logo URL" full hint="Public URL of a PNG or JPG. Defaults to your company logo if empty.">
-          <input
-            className={inputCls}
-            placeholder="https://…/invoice-logo.png"
-            value={form.invoice_logo_url}
-            onChange={(e) => setForm({ ...form, invoice_logo_url: e.target.value })}
-          />
-        </Field>
-
-        <Field label="Brand Color" hint="Used for invoice headers and accents.">
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={form.invoice_color_hex}
-              onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
-              className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer"
-            />
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Invoice Logo URL" full hint="Paste a public image URL. Leave blank to use your company logo from the Organization tab.">
             <input
               className={inputCls}
-              value={form.invoice_color_hex}
-              onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
-              placeholder="#22C55E"
+              placeholder="https://…/invoice-logo.png"
+              value={form.invoice_logo_url}
+              onChange={(e) => setForm({ ...form, invoice_logo_url: e.target.value })}
             />
-          </div>
-        </Field>
-        <div /> {/* spacer */}
+          </Field>
 
-        <Field label="Footer Text" full hint="Appears at the bottom of every invoice. Add bank details or thank-you notes.">
-          <textarea
-            className={`${inputCls} min-h-[90px] resize-y`}
-            placeholder="Thank you for your business. Bank: …"
-            value={form.invoice_footer_text}
-            onChange={(e) => setForm({ ...form, invoice_footer_text: e.target.value })}
-          />
-        </Field>
-      </div>
-
-      {/* Live preview */}
-      <div className="mt-6">
-        <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Preview</p>
-        <div className="border border-gray-200 rounded-lg overflow-hidden">
-          <div
-            className="px-5 py-3 flex items-center justify-between"
-            style={{ background: form.invoice_color_hex }}
-          >
-            {form.invoice_logo_url ? (
-              <img
-                src={form.invoice_logo_url}
-                alt="Invoice logo"
-                className="h-8 w-auto object-contain"
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
+          <Field label="Brand Color" hint="Used for invoice headers and amount accents.">
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={form.invoice_color_hex}
+                onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
+                className="w-10 h-10 rounded-lg border border-gray-200 cursor-pointer shrink-0"
               />
-            ) : (
-              <span className="text-white font-bold text-sm">Your Logo</span>
-            )}
-            <span className="text-white font-bold text-sm">INVOICE</span>
-          </div>
-          <div className="px-5 py-3 bg-white">
-            <p className="text-xs text-gray-400">Invoice header preview</p>
-          </div>
-          {form.invoice_footer_text && (
-            <div className="px-5 py-3 bg-gray-50 border-t border-gray-100">
-              <p className="text-xs text-gray-500 whitespace-pre-line">{form.invoice_footer_text}</p>
+              <input
+                className={inputCls}
+                value={form.invoice_color_hex}
+                onChange={(e) => setForm({ ...form, invoice_color_hex: e.target.value })}
+                placeholder="#22C55E"
+              />
             </div>
-          )}
-        </div>
-      </div>
+          </Field>
+          <div /> {/* spacer */}
 
-      <div className="flex justify-end mt-6">
-        <SaveButton
-          onClick={onSave}
-          disabled={!dirty}
-          isPending={updateSettings.isPending}
-          savedAt={savedAt}
+          <Field label="Footer Text" full hint="Appears at the bottom of every invoice — add bank details, payment instructions, or a thank-you note.">
+            <textarea
+              className={`${inputCls} min-h-[90px] resize-y`}
+              placeholder="Thank you for your business!&#10;Bank: GCB Bank · Acc: 1234567890 · Branch: Accra Main"
+              value={form.invoice_footer_text}
+              onChange={(e) => setForm({ ...form, invoice_footer_text: e.target.value })}
+            />
+          </Field>
+        </div>
+
+        <p className="text-xs text-gray-400 mt-4">
+          <span className="font-semibold text-gray-500">Tip:</span> Your company name, TIN, and tax types shown in the preview come from the{" "}
+          <span className="font-semibold">Organization</span> and <span className="font-semibold">Finance</span> tabs.
+        </p>
+
+        <div className="flex justify-end mt-6">
+          <SaveButton
+            onClick={onSave}
+            disabled={!dirty}
+            isPending={updateSettings.isPending}
+            savedAt={savedAt}
+          />
+        </div>
+      </Card>
+
+      {/* Right – live invoice preview */}
+      <div className="sticky top-6">
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Live Preview</p>
+        <InvoicePreviewSample
+          color={form.invoice_color_hex}
+          logoUrl={previewLogo}
+          footerText={form.invoice_footer_text}
+          orgName={previewOrgName}
+          orgTin={previewTin}
+          taxRates={settings?.tax_rates ?? []}
+          defaultTaxRate={settings?.default_tax_rate ?? 0}
         />
       </div>
-    </Card>
+    </div>
   );
 }
 

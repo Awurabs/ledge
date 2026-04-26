@@ -11,7 +11,7 @@ import {
   useDeleteInvoice,
 } from "../hooks/useInvoices";
 import { useContacts, useCreateContact } from "../hooks/useContacts";
-import { useOrgSettings } from "../hooks/useOrg";
+import { useOrgSettings, useOrganization } from "../hooks/useOrg";
 import { useAuth } from "../context/AuthContext";
 import { fmt, fmtDate } from "../lib/fmt";
 
@@ -58,17 +58,24 @@ const PAYMENT_METHODS = [
 // PDF download helper  — opens a print-ready window
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildPrintHTML(invoice, orgName, currency) {
-  const contact  = invoice.contacts ?? {};
-  const items    = [...(invoice.invoice_line_items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
-  const payments = invoice.invoice_payments ?? [];
-  const sub      = invoice.subtotal ?? 0;
-  const tax      = invoice.tax_amount ?? 0;
-  const disc     = invoice.discount_amount ?? 0;
-  const total    = invoice.total_amount ?? 0;
-  const paid     = invoice.amount_paid ?? 0;
-  const due      = invoice.amount_due ?? total - paid;
-  const fmtN     = (n) => {
+function buildPrintHTML(invoice, orgName, currency, orgSettings, orgData) {
+  const contact    = invoice.contacts ?? {};
+  const items      = [...(invoice.invoice_line_items ?? [])].sort((a, b) => a.sort_order - b.sort_order);
+  const payments   = invoice.invoice_payments ?? [];
+  const sub        = invoice.subtotal ?? 0;
+  const tax        = invoice.tax_amount ?? 0;
+  const disc       = invoice.discount_amount ?? 0;
+  const total      = invoice.total_amount ?? 0;
+  const paid       = invoice.amount_paid ?? 0;
+  const due        = invoice.amount_due ?? total - paid;
+  const headerColor = orgSettings?.invoice_color_hex ?? "#16a34a";
+  const logoUrl     = orgSettings?.invoice_logo_url || orgData?.logo_url || null;
+  const footerText  = orgSettings?.invoice_footer_text ?? "Thank you for your business!";
+  const orgTin      = orgData?.tin ?? null;
+  const breakdown   = Array.isArray(invoice.tax_breakdown) && invoice.tax_breakdown.length > 0
+    ? invoice.tax_breakdown
+    : tax > 0 ? [{ name: "Tax", rate: invoice.tax_rate ?? 0, amount: tax }] : [];
+  const fmtN = (n) => {
     const v = (n ?? 0) / 100;
     return `${sym(currency)} ${v.toLocaleString("en", { minimumFractionDigits: 2 })}`;
   };
@@ -107,12 +114,16 @@ function buildPrintHTML(invoice, orgName, currency) {
 <div style="max-width:800px;margin:0 auto;min-height:100vh;position:relative">
   ${watermark}
   <!-- Header gradient -->
-  <div style="background:linear-gradient(135deg,#16a34a 0%,#059669 100%);padding:32px 40px;display:flex;justify-content:space-between;align-items:flex-start">
+  <div style="background:${headerColor};padding:32px 40px;display:flex;justify-content:space-between;align-items:flex-start">
     <div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-        <div style="width:36px;height:36px;background:rgba(255,255,255,0.25);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff">L</div>
+        ${logoUrl
+          ? `<img src="${logoUrl}" alt="Logo" style="height:36px;width:auto;object-fit:contain;border-radius:6px" />`
+          : `<div style="width:36px;height:36px;background:rgba(255,255,255,0.25);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:18px;color:#fff">${orgName.charAt(0).toUpperCase()}</div>`
+        }
         <span style="color:#fff;font-size:18px;font-weight:800;letter-spacing:-0.3px">${orgName}</span>
       </div>
+      ${orgTin ? `<div style="color:rgba(255,255,255,0.7);font-size:11px;margin-top:4px">TIN: ${orgTin}</div>` : ""}
     </div>
     <div style="text-align:right">
       <div style="color:rgba(255,255,255,0.7);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Invoice</div>
@@ -161,7 +172,7 @@ function buildPrintHTML(invoice, orgName, currency) {
     <div style="display:flex;justify-content:flex-end;margin-bottom:24px">
       <div style="width:280px">
         ${sub !== total ? `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:#6b7280">Subtotal</span><span style="color:#374151">${fmtN(sub)}</span></div>` : ""}
-        ${tax > 0 ? `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:#6b7280">Tax (${invoice.tax_rate ?? 0}%)</span><span style="color:#374151">${fmtN(tax)}</span></div>` : ""}
+        ${breakdown.map(t => `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:#6b7280">${t.name} (${t.rate}%)</span><span style="color:#374151">${fmtN(t.amount)}</span></div>`).join("")}
         ${disc > 0 ? `<div style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px"><span style="color:#6b7280">Discount</span><span style="color:#dc2626">-${fmtN(disc)}</span></div>` : ""}
         <div style="display:flex;justify-content:space-between;padding:10px 12px;background:#f0fdf4;border-radius:8px;margin:6px 0">
           <span style="font-size:15px;font-weight:800;color:#111827">Total</span>
@@ -185,9 +196,12 @@ function buildPrintHTML(invoice, orgName, currency) {
     </div>` : ""}
 
     <!-- Footer -->
-    <div style="border-top:1px solid #e5e7eb;padding-top:20px;display:flex;justify-content:space-between;align-items:center">
-      <div style="font-size:12px;color:#9ca3af">Thank you for your business!</div>
-      <div style="font-size:11px;color:#d1d5db">${invoice.invoice_number} · Generated ${new Date().toLocaleDateString()}</div>
+    <div style="border-top:1px solid #e5e7eb;padding-top:20px">
+      ${footerText ? `<div style="font-size:12px;color:#6b7280;white-space:pre-line;margin-bottom:10px">${footerText}</div>` : ""}
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:11px;color:#9ca3af">${orgName}${orgTin ? ` · TIN: ${orgTin}` : ""}</div>
+        <div style="font-size:11px;color:#d1d5db">${invoice.invoice_number} · Generated ${new Date().toLocaleDateString()}</div>
+      </div>
     </div>
   </div>
 </div>
@@ -388,18 +402,26 @@ function RecordPaymentModal({ invoice, currency, onClose }) {
 // InvoiceDocument — the beautiful printable preview
 // ─────────────────────────────────────────────────────────────────────────────
 
-function InvoiceDocument({ invoice, currency, orgName }) {
-  const contact  = invoice.contacts ?? {};
-  const items    = useMemo(() =>
+function InvoiceDocument({ invoice, currency, orgName, orgSettings, orgData }) {
+  const contact     = invoice.contacts ?? {};
+  const items       = useMemo(() =>
     [...(invoice.invoice_line_items ?? [])].sort((a, b) => a.sort_order - b.sort_order),
   [invoice]);
-  const payments = invoice.invoice_payments ?? [];
-  const sub      = invoice.subtotal ?? 0;
-  const tax      = invoice.tax_amount ?? 0;
-  const disc     = invoice.discount_amount ?? 0;
-  const total    = invoice.total_amount ?? 0;
-  const paid     = invoice.amount_paid ?? 0;
-  const due      = invoice.amount_due ?? total - paid;
+  const payments    = invoice.invoice_payments ?? [];
+  const sub         = invoice.subtotal ?? 0;
+  const tax         = invoice.tax_amount ?? 0;
+  const disc        = invoice.discount_amount ?? 0;
+  const total       = invoice.total_amount ?? 0;
+  const paid        = invoice.amount_paid ?? 0;
+  const due         = invoice.amount_due ?? total - paid;
+  const headerColor = orgSettings?.invoice_color_hex ?? "#16a34a";
+  const logoUrl     = orgSettings?.invoice_logo_url || orgData?.logo_url || null;
+  const footerText  = orgSettings?.invoice_footer_text ?? "";
+  const orgTin      = orgData?.tin ?? null;
+  // Tax breakdown: use stored breakdown if available, fall back to single rate
+  const breakdown   = Array.isArray(invoice.tax_breakdown) && invoice.tax_breakdown.length > 0
+    ? invoice.tax_breakdown
+    : tax > 0 ? [{ name: "Tax", rate: invoice.tax_rate ?? 0, amount: tax }] : [];
 
   const isVoid    = invoice.status === "void";
   const isPaid    = invoice.status === "paid";
@@ -423,19 +445,31 @@ function InvoiceDocument({ invoice, currency, orgName }) {
         </div>
       )}
 
-      {/* Header gradient */}
-      <div className="bg-gradient-to-br from-green-600 to-emerald-500 px-8 py-7 flex items-start justify-between">
+      {/* Header */}
+      <div
+        className="px-8 py-7 flex items-start justify-between"
+        style={{ background: headerColor }}
+      >
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white font-black text-xl">
-            L
-          </div>
+          {logoUrl ? (
+            <img
+              src={logoUrl}
+              alt="Logo"
+              className="h-10 w-auto object-contain rounded-lg"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
+          ) : (
+            <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center text-white font-black text-xl">
+              {orgName.charAt(0).toUpperCase()}
+            </div>
+          )}
           <div>
             <p className="text-white font-bold text-lg leading-tight">{orgName}</p>
-            <p className="text-green-100 text-xs mt-0.5">Financial Services</p>
+            {orgTin && <p className="text-white/70 text-xs mt-0.5">TIN: {orgTin}</p>}
           </div>
         </div>
         <div className="text-right">
-          <p className="text-green-100 text-xs font-semibold uppercase tracking-[2px] mb-1">Invoice</p>
+          <p className="text-white/70 text-xs font-semibold uppercase tracking-[2px] mb-1">Invoice</p>
           <p className="text-white font-black text-2xl tracking-tight">{invoice.invoice_number}</p>
           <div className="mt-2">
             <StatusPill status={invoice.status} />
@@ -517,19 +551,19 @@ function InvoiceDocument({ invoice, currency, orgName }) {
                 <span className="text-gray-700 tabular-nums">{fmt(sub, currency)}</span>
               </div>
             )}
-            {tax > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Tax ({invoice.tax_rate ?? 0}%)</span>
-                <span className="text-gray-700 tabular-nums">{fmt(tax, currency)}</span>
+            {breakdown.map((t, i) => (
+              <div key={i} className="flex justify-between text-sm">
+                <span className="text-gray-500">{t.name} ({t.rate}%)</span>
+                <span className="text-gray-700 tabular-nums">{fmt(t.amount, currency)}</span>
               </div>
-            )}
+            ))}
             {disc > 0 && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Discount</span>
                 <span className="text-red-600 tabular-nums">−{fmt(disc, currency)}</span>
               </div>
             )}
-            {(sub !== total || tax > 0 || disc > 0) && <div className="h-px bg-gray-200 my-1" />}
+            {(sub !== total || breakdown.length > 0 || disc > 0) && <div className="h-px bg-gray-200 my-1" />}
             <div className="flex justify-between items-center bg-green-50 rounded-xl px-3 py-2.5">
               <span className="font-bold text-gray-900">Total</span>
               <span className="font-black text-lg text-green-600 tabular-nums">{fmt(total, currency)}</span>
@@ -580,9 +614,14 @@ function InvoiceDocument({ invoice, currency, orgName }) {
         )}
 
         {/* Footer */}
-        <div className="border-t border-gray-100 pt-5 flex items-center justify-between">
-          <p className="text-sm text-gray-400 italic">Thank you for your business!</p>
-          <p className="text-xs text-gray-300 font-mono">{invoice.invoice_number}</p>
+        <div className="border-t border-gray-100 pt-5 space-y-2">
+          {footerText && (
+            <p className="text-sm text-gray-500 whitespace-pre-line">{footerText}</p>
+          )}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400">{orgName}{orgTin ? ` · TIN: ${orgTin}` : ""}</p>
+            <p className="text-xs text-gray-300 font-mono">{invoice.invoice_number}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -795,6 +834,17 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, is
   const canContinue = [null, !!contact, validItems.length > 0, true][step] ?? true;
 
   function buildPayload() {
+    // Build per-type tax breakdown for storage
+    const taxBreakdown = usingNamedTaxes
+      ? activeTaxes.map((t) => ({
+          name:   t.name,
+          rate:   parseFloat(t.rate) || 0,
+          amount: Math.round(subtotalMinor * (parseFloat(t.rate) || 0) / 100),
+        }))
+      : effectiveTaxRate > 0
+        ? [{ name: "Tax", rate: effectiveTaxRate, amount: taxMinor }]
+        : [];
+
     return {
       invoice: {
         contact_id:      contact.id,
@@ -802,6 +852,7 @@ function InvoiceBuilder({ contacts, currency, onClose, onSave, onNeedContact, is
         due_date:        form.due_date || null,
         payment_terms:   form.payment_terms,
         tax_rate:        effectiveTaxRate,
+        tax_breakdown:   taxBreakdown,
         subtotal:        subtotalMinor,
         tax_amount:      taxMinor,
         discount_amount: 0,
@@ -1138,6 +1189,8 @@ export default function Invoicing() {
   const { orgCurrency, orgName } = useAuth();
   const currency  = orgCurrency ?? "GHS";
   const org       = orgName ?? "Your Organisation";
+  const { data: orgSettings } = useOrgSettings();
+  const { data: orgData }     = useOrganization();
 
   const [activeTab,        setActiveTab]        = useState("all");
   const [selectedId,       setSelectedId]       = useState(null);
@@ -1232,7 +1285,7 @@ export default function Invoicing() {
 
   function handleDownload() {
     if (!selectedInvoice) return;
-    const html = buildPrintHTML(selectedInvoice, org, currency);
+    const html = buildPrintHTML(selectedInvoice, org, currency, orgSettings, orgData);
     const win  = window.open("", "_blank");
     if (!win) { alert("Please allow pop-ups to download the invoice."); return; }
     win.document.write(html);
@@ -1526,7 +1579,7 @@ export default function Invoicing() {
               </div>
 
               {/* Invoice document */}
-              <InvoiceDocument invoice={selectedInvoice} currency={currency} orgName={org} />
+              <InvoiceDocument invoice={selectedInvoice} currency={currency} orgName={org} orgSettings={orgSettings} orgData={orgData} />
             </>
           )}
         </div>
