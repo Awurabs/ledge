@@ -71,7 +71,7 @@ export function useMembers(filters = {}) {
       // ── Step 3: fetch profiles separately ────────────────────────────────
       const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
-        .select("id, full_name, avatar_url, phone, job_title, last_seen_at")
+        .select("id, full_name, avatar_url, phone, job_title")
         .in("id", userIds);
 
       if (profilesError) throw profilesError;

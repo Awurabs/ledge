@@ -181,10 +181,10 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
                 {member.profiles.phone}
               </div>
             )}
-            {member.profiles?.last_seen_at && (
+            {member.accepted_at && (
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Clock size={13} className="flex-shrink-0" />
-                Last seen {timeSince(member.profiles.last_seen_at)}
+                Joined {fmtDate(member.accepted_at)}
               </div>
             )}
           </div>
@@ -557,7 +557,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading, isError, re
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
-                  {["Employee", "Role", "Department", "Cards", "Last Seen", "Status", ""].map(h => (
+                  {["Employee", "Role", "Department", "Cards", "Joined", "Status", ""].map(h => (
                     <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
@@ -587,7 +587,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading, isError, re
                       <td className="px-4 py-3"><RoleBadge role={m.role} /></td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{m.departments?.name ?? "—"}</td>
                       <td className="px-4 py-3 text-gray-600">{mCards.length}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{timeSince(m.profiles?.last_seen_at)}</td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{m.accepted_at ? fmtDate(m.accepted_at) : "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                           isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
