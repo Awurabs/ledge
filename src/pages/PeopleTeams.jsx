@@ -2,7 +2,7 @@ import { useState, useMemo } from "react";
 import {
   Search, X, UserPlus, Phone, CreditCard, Briefcase,
   Users, Building2, Edit2, Check, Trash2, Plus,
-  UserX, UserCheck, Clock, ChevronRight,
+  UserX, UserCheck, Clock, ChevronRight, AlertCircle, RefreshCw,
 } from "lucide-react";
 import {
   useMembers, useDepartments, useTeams,
@@ -14,12 +14,30 @@ import {
 import { useCards } from "../hooks/useCards";
 import { fmtDate } from "../lib/fmt";
 
-// ── Skeleton ───────────────────────────────────────────────────────────────────
+// ── Skeleton ──────────────────────────────────────────────────────────────────
 function Skeleton({ className = "" }) {
   return <div className={`animate-pulse bg-gray-200 rounded ${className}`} />;
 }
 
-// ── Avatar helpers ─────────────────────────────────────────────────────────────
+// ── Error banner ──────────────────────────────────────────────────────────────
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3 mb-4">
+      <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+      <p className="text-sm text-red-700 flex-1">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-xs text-red-600 font-medium flex items-center gap-1 hover:text-red-800"
+        >
+          <RefreshCw size={12} /> Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Avatar ────────────────────────────────────────────────────────────────────
 const AVATAR_COLORS = [
   "bg-green-100 text-green-700",   "bg-blue-100 text-blue-700",
   "bg-purple-100 text-purple-700", "bg-orange-100 text-orange-700",
@@ -42,10 +60,7 @@ function initials(name = "") {
 }
 
 function Avatar({ name = "", size = "md", className = "" }) {
-  const sz =
-    size === "sm" ? "w-7 h-7 text-xs" :
-    size === "lg" ? "w-12 h-12 text-base" :
-                    "w-9 h-9 text-sm";
+  const sz = size === "sm" ? "w-7 h-7 text-xs" : size === "lg" ? "w-12 h-12 text-base" : "w-9 h-9 text-sm";
   return (
     <div className={`${sz} rounded-full flex items-center justify-center font-semibold flex-shrink-0 ${avatarColor(name)} ${className}`}>
       {initials(name)}
@@ -53,9 +68,7 @@ function Avatar({ name = "", size = "md", className = "" }) {
   );
 }
 
-// ── Role badge ─────────────────────────────────────────────────────────────────
-// Values must match the org_role postgres enum:
-// owner | admin | finance_lead | accountant | employee | viewer
+// ── Role badge ────────────────────────────────────────────────────────────────
 const ROLE_MAP = {
   owner:        { color: "bg-purple-100 text-purple-700", label: "Owner"        },
   admin:        { color: "bg-red-100 text-red-700",       label: "Admin"        },
@@ -64,12 +77,10 @@ const ROLE_MAP = {
   employee:     { color: "bg-gray-100 text-gray-600",     label: "Employee"     },
   viewer:       { color: "bg-gray-100 text-gray-400",     label: "Viewer"       },
 };
-
-// Roles available when inviting (owner is not invitable)
 const INVITABLE_ROLES = ["admin", "finance_lead", "accountant", "employee", "viewer"];
 
 function RoleBadge({ role = "" }) {
-  const r = ROLE_MAP[role?.toLowerCase()] ?? ROLE_MAP.member;
+  const r = ROLE_MAP[role?.toLowerCase()] ?? { color: "bg-gray-100 text-gray-500", label: role };
   return (
     <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${r.color}`}>
       {r.label}
@@ -77,7 +88,7 @@ function RoleBadge({ role = "" }) {
   );
 }
 
-// ── Relative time ──────────────────────────────────────────────────────────────
+// ── Relative time ─────────────────────────────────────────────────────────────
 function timeSince(dateStr) {
   if (!dateStr) return "Never";
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -87,8 +98,7 @@ function timeSince(dateStr) {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24)  return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
-  if (days < 7)  return `${days}d ago`;
-  return fmtDate(dateStr);
+  return days < 7 ? `${days}d ago` : fmtDate(dateStr);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -96,14 +106,14 @@ function timeSince(dateStr) {
 // ─────────────────────────────────────────────────────────────────────────────
 function MemberDrawer({ member, departments, cardsByMember, onClose }) {
   const [editing,  setEditing]  = useState(false);
-  const [editRole, setEditRole] = useState(member.role ?? "member");
+  const [editRole, setEditRole] = useState(member.role ?? "employee");
   const [editDept, setEditDept] = useState(member.department_id ?? "");
 
   const updateMut     = useUpdateMember();
   const deactivateMut = useDeactivateMember();
   const reactivateMut = useReactivateMember();
 
-  const name     = member.profiles?.full_name ?? "Unknown";
+  const name     = member.profiles?.full_name || member.user_id?.slice(0, 8) || "Unknown";
   const isActive = !member.deactivated_at;
   const mCards   = cardsByMember[member.id] ?? [];
 
@@ -146,8 +156,6 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-
-          {/* Status + join date */}
           <div className="flex items-center gap-3 flex-wrap">
             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
               isActive ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"
@@ -156,13 +164,10 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
               {isActive ? "Active" : "Suspended"}
             </span>
             {member.created_at && (
-              <span className="text-xs text-gray-400">
-                Member since {fmtDate(member.created_at)}
-              </span>
+              <span className="text-xs text-gray-400">Member since {fmtDate(member.created_at)}</span>
             )}
           </div>
 
-          {/* Contact / meta */}
           <div className="space-y-1.5">
             {member.profiles?.job_title && (
               <div className="flex items-center gap-2 text-sm text-gray-600">
@@ -184,27 +189,17 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
             )}
           </div>
 
-          {/* Role & Department (editable) */}
+          {/* Role & Department */}
           <div className="bg-gray-50 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
-              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                Role & Department
-              </p>
+              <p className="text-xs font-semibold text-gray-700 uppercase tracking-wider">Role & Department</p>
               {!editing ? (
-                <button
-                  onClick={() => setEditing(true)}
-                  className="text-xs text-green-600 flex items-center gap-1 hover:text-green-700"
-                >
+                <button onClick={() => setEditing(true)} className="text-xs text-green-600 flex items-center gap-1 hover:text-green-700">
                   <Edit2 size={11} /> Edit
                 </button>
               ) : (
                 <div className="flex gap-3">
-                  <button
-                    onClick={() => setEditing(false)}
-                    className="text-xs text-gray-400 hover:text-gray-600"
-                  >
-                    Cancel
-                  </button>
+                  <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
                   <button
                     onClick={handleSave}
                     disabled={updateMut.isPending}
@@ -261,9 +256,7 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
 
           {/* Cards */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Cards Assigned
-            </p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cards Assigned</p>
             {mCards.length === 0 ? (
               <p className="text-sm text-gray-400">No cards assigned</p>
             ) : (
@@ -273,9 +266,7 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
                     <CreditCard size={14} className="text-gray-400" />
                     <span className="text-sm text-gray-700 font-mono">•••• {c.last_four ?? "0000"}</span>
                     <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium capitalize ${
-                      c.status === "active"
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-100 text-gray-500"
+                      c.status === "active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
                     }`}>
                       {c.status}
                     </span>
@@ -312,8 +303,8 @@ function MemberDrawer({ member, departments, cardsByMember, onClose }) {
 // INVITE MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 function InviteModal({ departments, onClose }) {
-  const [form, setForm] = useState({ email: "", role: "employee", department_id: "" });
-  const [sent, setSent]   = useState(false);
+  const [form,   setForm]   = useState({ email: "", role: "employee", department_id: "" });
+  const [sent,   setSent]   = useState(false);
   const [errMsg, setErrMsg] = useState("");
   const inviteMut = useInviteMember();
 
@@ -338,13 +329,10 @@ function InviteModal({ departments, onClose }) {
           </div>
           <h3 className="text-lg font-bold text-gray-900 mb-1">Invite Sent!</h3>
           <p className="text-sm text-gray-500 mb-6">
-            An invitation email has been sent to <strong>{form.email}</strong>.
-            They'll click the link to set up their account and will be added to your org automatically.
+            An email with a temporary password has been sent to <strong>{form.email}</strong>.
+            They'll log in and set their own password to join your org.
           </p>
-          <button
-            onClick={onClose}
-            className="bg-green-500 text-white rounded-lg px-6 py-2 text-sm font-medium hover:bg-green-600"
-          >
+          <button onClick={onClose} className="bg-green-500 text-white rounded-lg px-6 py-2 text-sm font-medium hover:bg-green-600">
             Done
           </button>
         </div>
@@ -358,7 +346,7 @@ function InviteModal({ departments, onClose }) {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Invite Employee</h3>
-            <p className="text-xs text-gray-400 mt-0.5">They'll receive an email with a sign-up link.</p>
+            <p className="text-xs text-gray-400 mt-0.5">They'll receive a temporary password by email.</p>
           </div>
           <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
         </div>
@@ -408,11 +396,7 @@ function InviteModal({ departments, onClose }) {
           )}
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50"
-            >
+            <button type="button" onClick={onClose} className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">
               Cancel
             </button>
             <button
@@ -432,15 +416,15 @@ function InviteModal({ departments, onClose }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // PEOPLE TAB
 // ─────────────────────────────────────────────────────────────────────────────
-function PeopleTab({ members, departments, cardsByMember, isLoading }) {
+function PeopleTab({ members, departments, cardsByMember, isLoading, isError, refetch }) {
   const { data: pendingInvites = [] } = usePendingInvitations();
   const revokeMut = useRevokeInvitation();
 
-  // Build a dept id → name map for displaying pending invites' departments
   const deptMap = useMemo(
     () => departments.reduce((acc, d) => { acc[d.id] = d.name; return acc; }, {}),
-    [departments]
+    [departments],
   );
+
   const [selected,   setSelected]   = useState(null);
   const [showInvite, setShowInvite] = useState(false);
   const [search,     setSearch]     = useState("");
@@ -455,10 +439,11 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
       const name = (m.profiles?.full_name ?? "").toLowerCase();
       const dept = (m.departments?.name   ?? "").toLowerCase();
       const job  = (m.profiles?.job_title ?? "").toLowerCase();
-      const matchText = !q || name.includes(q) || dept.includes(q) || job.includes(q);
-      const matchRole = !roleFilter || m.role === roleFilter;
-      const matchDept = !deptFilter || m.department_id === deptFilter;
-      return matchText && matchRole && matchDept;
+      return (
+        (!q || name.includes(q) || dept.includes(q) || job.includes(q)) &&
+        (!roleFilter || m.role === roleFilter) &&
+        (!deptFilter || m.department_id === deptFilter)
+      );
     });
   }, [members, search, roleFilter, deptFilter, showAll]);
 
@@ -467,6 +452,14 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
 
   return (
     <>
+      {/* Error */}
+      {isError && (
+        <ErrorBanner
+          message="Failed to load team members. Check your connection and try again."
+          onRetry={refetch}
+        />
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         {isLoading ? (
@@ -525,20 +518,15 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
           ))}
         </select>
 
-        {/* Show suspended toggle */}
         <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
           <button
             type="button"
             role="switch"
             aria-checked={showAll}
             onClick={() => setShowAll(v => !v)}
-            className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-              showAll ? "bg-green-500" : "bg-gray-300"
-            }`}
+            className={`relative inline-flex w-9 h-5 rounded-full transition-colors flex-shrink-0 ${showAll ? "bg-green-500" : "bg-gray-300"}`}
           >
-            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-              showAll ? "translate-x-4" : "translate-x-0"
-            }`} />
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showAll ? "translate-x-4" : "translate-x-0"}`} />
           </button>
           Show suspended
         </label>
@@ -551,16 +539,18 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
         </button>
       </div>
 
-      {/* Table */}
+      {/* Members table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="p-6 space-y-3">
-            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
+            {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-lg" />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center">
             <Users size={32} className="mx-auto text-gray-300 mb-3" />
-            <p className="text-sm text-gray-500">No members match your filters</p>
+            <p className="text-sm text-gray-500">
+              {members.length === 0 ? "No team members yet — invite someone to get started." : "No members match your filters"}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -568,24 +558,20 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200">
                   {["Employee", "Role", "Department", "Cards", "Last Seen", "Status", ""].map(h => (
-                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {h}
-                    </th>
+                    <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(m => {
-                  const name     = m.profiles?.full_name ?? "Unknown";
+                  const name     = m.profiles?.full_name || "Pending setup";
                   const mCards   = cardsByMember[m.id] ?? [];
                   const isActive = !m.deactivated_at;
                   return (
                     <tr
                       key={m.id}
                       onClick={() => setSelected(m)}
-                      className={`border-b border-gray-100 hover:bg-green-50/40 cursor-pointer transition-colors ${
-                        selected?.id === m.id ? "bg-green-50/30" : ""
-                      }`}
+                      className={`border-b border-gray-100 hover:bg-green-50/40 cursor-pointer transition-colors ${selected?.id === m.id ? "bg-green-50/30" : ""}`}
                     >
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2.5">
@@ -601,9 +587,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
                       <td className="px-4 py-3"><RoleBadge role={m.role} /></td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{m.departments?.name ?? "—"}</td>
                       <td className="px-4 py-3 text-gray-600">{mCards.length}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">
-                        {timeSince(m.profiles?.last_seen_at)}
-                      </td>
+                      <td className="px-4 py-3 text-gray-400 text-xs">{timeSince(m.profiles?.last_seen_at)}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                           isActive ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
@@ -634,7 +618,7 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
         </div>
       </div>
 
-      {/* ── Pending Invitations ─────────────────────────────────────── */}
+      {/* Pending Invitations */}
       {pendingInvites.length > 0 && (
         <div className="mt-5 bg-white rounded-xl border border-amber-200 shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-amber-100 bg-amber-50 flex items-center gap-2">
@@ -642,18 +626,14 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
             <p className="text-sm font-semibold text-amber-700">
               Pending Invitations ({pendingInvites.length})
             </p>
-            <span className="ml-2 text-xs text-amber-500">
-              Invite sent — waiting for the recipient to set their password
-            </span>
+            <span className="ml-2 text-xs text-amber-500">Waiting for recipients to set their password</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100">
                   {["Email", "Role", "Department", "Invited", "Expires", "Status", ""].map(h => (
-                    <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                      {h}
-                    </th>
+                    <th key={h} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -662,15 +642,9 @@ function PeopleTab({ members, departments, cardsByMember, isLoading }) {
                   <tr key={inv.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
                     <td className="px-4 py-3 font-medium text-gray-700">{inv.email}</td>
                     <td className="px-4 py-3"><RoleBadge role={inv.role} /></td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {deptMap[inv.department_id] ?? "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {timeSince(inv.created_at)}
-                    </td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">
-                      {fmtDate(inv.expires_at)}
-                    </td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{deptMap[inv.department_id] ?? "—"}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">{timeSince(inv.created_at)}</td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">{fmtDate(inv.expires_at)}</td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-xs font-medium px-2.5 py-1 rounded-full border border-amber-200">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
@@ -722,17 +696,14 @@ function TeamDrawer({ team, members, onClose }) {
   const addMut    = useAddTeamMember();
   const removeMut = useRemoveTeamMember();
 
-  const existingIds = new Set(
-    (team.team_members ?? []).map(tm => tm.member?.id).filter(Boolean),
-  );
-  const available = members.filter(m => !existingIds.has(m.id) && !m.deactivated_at);
-  const leadName  = team.lead?.profiles?.full_name;
+  const existingIds = new Set((team.team_members ?? []).map(tm => tm.member?.id).filter(Boolean));
+  const available   = members.filter(m => !existingIds.has(m.id) && !m.deactivated_at);
+  const leadName    = team.lead?.profiles?.full_name;
 
   return (
     <>
       <div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
       <div className="fixed right-0 top-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col">
-
         <div className="p-6 border-b border-gray-100 flex items-start justify-between flex-shrink-0">
           <div>
             <h3 className="font-bold text-gray-900 text-lg">{team.name}</h3>
@@ -745,18 +716,12 @@ function TeamDrawer({ team, members, onClose }) {
               <p className="text-xs text-gray-400 mt-1">No lead assigned</p>
             )}
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
-
-          {/* Add member */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-              Add Member
-            </p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Add Member</p>
             <div className="flex gap-2">
               <select
                 value={addId}
@@ -771,10 +736,7 @@ function TeamDrawer({ team, members, onClose }) {
               <button
                 onClick={() => {
                   if (!addId) return;
-                  addMut.mutate(
-                    { team_id: team.id, member_id: addId },
-                    { onSuccess: () => setAddId("") },
-                  );
+                  addMut.mutate({ team_id: team.id, member_id: addId }, { onSuccess: () => setAddId("") });
                 }}
                 disabled={!addId || addMut.isPending}
                 className="bg-green-500 text-white rounded-lg px-3 py-2 hover:bg-green-600 disabled:opacity-50"
@@ -784,13 +746,12 @@ function TeamDrawer({ team, members, onClose }) {
             </div>
           </div>
 
-          {/* Member list */}
           <div>
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
               Members ({(team.team_members ?? []).length})
             </p>
             {(team.team_members ?? []).length === 0 ? (
-              <p className="text-sm text-gray-400">No members yet. Add some above.</p>
+              <p className="text-sm text-gray-400">No members yet.</p>
             ) : (
               <div className="space-y-2">
                 {(team.team_members ?? []).map(tm => {
@@ -828,10 +789,7 @@ function CreateTeamModal({ members, onClose }) {
 
   function handleSubmit(e) {
     e.preventDefault();
-    createMut.mutate(
-      { name: name.trim(), lead_id: leadId || null },
-      { onSuccess: onClose },
-    );
+    createMut.mutate({ name: name.trim(), lead_id: leadId || null }, { onSuccess: onClose });
   }
 
   return (
@@ -868,18 +826,8 @@ function CreateTeamModal({ members, onClose }) {
             </select>
           </div>
           <div className="flex gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={createMut.isPending}
-              className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-70"
-            >
+            <button type="button" onClick={onClose} className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+            <button type="submit" disabled={createMut.isPending} className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-70">
               {createMut.isPending ? "Creating…" : "Create Team"}
             </button>
           </div>
@@ -895,13 +843,11 @@ function CreateTeamModal({ members, onClose }) {
 function TeamsTab({ members }) {
   const [selectedTeam, setSelectedTeam] = useState(null);
   const [showCreate,   setShowCreate]   = useState(false);
-
   const { data: teams = [], isLoading, isError } = useTeams();
   const totalTeamMembers = teams.reduce((s, t) => s + (t.team_members?.length ?? 0), 0);
 
   return (
     <>
-      {/* Stats */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         {isLoading ? (
           [...Array(2)].map((_, i) => <Skeleton key={i} className="h-20 rounded-xl" />)
@@ -923,35 +869,25 @@ function TeamsTab({ members }) {
         )}
       </div>
 
-      {/* Action bar */}
       <div className="flex justify-end mb-4">
-        <button
-          onClick={() => setShowCreate(true)}
-          className="bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 flex items-center gap-2"
-        >
+        <button onClick={() => setShowCreate(true)} className="bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 flex items-center gap-2">
           <Plus size={14} /> New Team
         </button>
       </div>
 
-      {/* Teams grid */}
       {isLoading ? (
         <div className="grid grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-40 rounded-xl" />)}
         </div>
       ) : isError ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
-          <p className="text-sm text-gray-500">Unable to load teams. Please try again.</p>
+          <p className="text-sm text-gray-500">Unable to load teams. Please refresh.</p>
         </div>
       ) : teams.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
           <Users size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-sm text-gray-500 mb-4">No teams yet</p>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="text-sm text-green-600 font-medium hover:text-green-700"
-          >
-            Create your first team →
-          </button>
+          <button onClick={() => setShowCreate(true)} className="text-sm text-green-600 font-medium hover:text-green-700">Create your first team →</button>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4">
@@ -984,12 +920,7 @@ function TeamsTab({ members }) {
                 {teamMemberList.length > 0 && (
                   <div className="flex -space-x-2">
                     {teamMemberList.slice(0, 5).map(tm => (
-                      <Avatar
-                        key={tm.id}
-                        name={tm.member?.profiles?.full_name ?? "?"}
-                        size="sm"
-                        className="ring-2 ring-white"
-                      />
+                      <Avatar key={tm.id} name={tm.member?.profiles?.full_name ?? "?"} size="sm" className="ring-2 ring-white" />
                     ))}
                     {teamMemberList.length > 5 && (
                       <div className="w-7 h-7 rounded-full bg-gray-100 ring-2 ring-white flex items-center justify-center text-xs text-gray-500 font-medium">
@@ -1004,27 +935,18 @@ function TeamsTab({ members }) {
         </div>
       )}
 
-      {selectedTeam && (
-        <TeamDrawer
-          team={selectedTeam}
-          members={members}
-          onClose={() => setSelectedTeam(null)}
-        />
-      )}
-      {showCreate && (
-        <CreateTeamModal members={members} onClose={() => setShowCreate(false)} />
-      )}
+      {selectedTeam && <TeamDrawer team={selectedTeam} members={members} onClose={() => setSelectedTeam(null)} />}
+      {showCreate    && <CreateTeamModal members={members} onClose={() => setShowCreate(false)} />}
     </>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEPARTMENT MODAL (create / edit)
+// DEPT MODAL
 // ─────────────────────────────────────────────────────────────────────────────
 function DeptModal({ dept, onClose }) {
   const [name, setName] = useState(dept?.name ?? "");
   const [code, setCode] = useState(dept?.code ?? "");
-
   const createMut = useCreateDepartment();
   const updateMut = useUpdateDepartment();
   const isEdit    = !!dept;
@@ -1044,9 +966,7 @@ function DeptModal({ dept, onClose }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {isEdit ? "Edit Department" : "New Department"}
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900">{isEdit ? "Edit Department" : "New Department"}</h3>
           <button onClick={onClose}><X size={18} className="text-gray-400" /></button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -1073,18 +993,8 @@ function DeptModal({ dept, onClose }) {
             />
           </div>
           <div className="flex gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-70"
-            >
+            <button type="button" onClick={onClose} className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
+            <button type="submit" disabled={isPending} className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-70">
               {isPending ? "Saving…" : isEdit ? "Save Changes" : "Create"}
             </button>
           </div>
@@ -1098,7 +1008,7 @@ function DeptModal({ dept, onClose }) {
 // DEPARTMENTS TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function DepartmentsTab({ departments, members, isLoading }) {
-  const [deptModal,     setDeptModal]     = useState(null); // null | "create" | dept obj
+  const [deptModal,     setDeptModal]     = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const deleteMut = useDeleteDepartment();
 
@@ -1112,20 +1022,13 @@ function DepartmentsTab({ departments, members, isLoading }) {
 
   return (
     <>
-      {/* Action bar */}
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-gray-500">
-          {departments.length} department{departments.length !== 1 ? "s" : ""}
-        </p>
-        <button
-          onClick={() => setDeptModal("create")}
-          className="bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 flex items-center gap-2"
-        >
+        <p className="text-sm text-gray-500">{departments.length} department{departments.length !== 1 ? "s" : ""}</p>
+        <button onClick={() => setDeptModal("create")} className="bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600 flex items-center gap-2">
           <Plus size={14} /> New Department
         </button>
       </div>
 
-      {/* Grid */}
       {isLoading ? (
         <div className="grid grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
@@ -1134,87 +1037,51 @@ function DepartmentsTab({ departments, members, isLoading }) {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm py-16 text-center">
           <Building2 size={32} className="mx-auto text-gray-300 mb-3" />
           <p className="text-sm text-gray-500 mb-4">No departments yet</p>
-          <button
-            onClick={() => setDeptModal("create")}
-            className="text-sm text-green-600 font-medium hover:text-green-700"
-          >
-            Create your first department →
-          </button>
+          <button onClick={() => setDeptModal("create")} className="text-sm text-green-600 font-medium hover:text-green-700">Create your first department →</button>
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {departments.map(dept => {
             const count = memberCountByDept[dept.id] ?? 0;
             return (
-              <div
-                key={dept.id}
-                className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:shadow-md transition-shadow group"
-              >
+              <div key={dept.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:shadow-md transition-shadow group">
                 <div className="flex items-start justify-between mb-3">
                   <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
                     <Building2 size={18} className="text-purple-600" />
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => setDeptModal(dept)}
-                      className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700"
-                    >
+                    <button onClick={() => setDeptModal(dept)} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-400 hover:text-gray-700">
                       <Edit2 size={13} />
                     </button>
-                    <button
-                      onClick={() => setDeleteConfirm(dept)}
-                      className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500"
-                    >
+                    <button onClick={() => setDeleteConfirm(dept)} className="p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500">
                       <Trash2 size={13} />
                     </button>
                   </div>
                 </div>
                 <h4 className="font-semibold text-gray-900">{dept.name}</h4>
                 {dept.code && (
-                  <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded mt-0.5 inline-block">
-                    {dept.code}
-                  </span>
+                  <span className="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded mt-0.5 inline-block">{dept.code}</span>
                 )}
-                <p className="text-sm text-gray-500 mt-2">
-                  {count} member{count !== 1 ? "s" : ""}
-                </p>
+                <p className="text-sm text-gray-500 mt-2">{count} member{count !== 1 ? "s" : ""}</p>
               </div>
             );
           })}
         </div>
       )}
 
-      {/* Create / Edit modal */}
-      {deptModal && (
-        <DeptModal
-          dept={deptModal === "create" ? null : deptModal}
-          onClose={() => setDeptModal(null)}
-        />
-      )}
+      {deptModal && <DeptModal dept={deptModal === "create" ? null : deptModal} onClose={() => setDeptModal(null)} />}
 
-      {/* Delete confirm dialog */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-2">Delete Department?</h3>
             <p className="text-sm text-gray-500 mb-5">
-              Are you sure you want to delete <strong>{deleteConfirm.name}</strong>?
-              Members in this department will become unassigned.
+              Are you sure you want to delete <strong>{deleteConfirm.name}</strong>? Members in this department will become unassigned.
             </p>
             <div className="flex gap-3">
+              <button onClick={() => setDeleteConfirm(null)} className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50">Cancel</button>
               <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 bg-white text-gray-700 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() =>
-                  deleteMut.mutate(
-                    { id: deleteConfirm.id },
-                    { onSuccess: () => setDeleteConfirm(null) },
-                  )
-                }
+                onClick={() => deleteMut.mutate({ id: deleteConfirm.id }, { onSuccess: () => setDeleteConfirm(null) })}
                 disabled={deleteMut.isPending}
                 className="flex-1 bg-red-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-red-600 disabled:opacity-70"
               >
@@ -1236,9 +1103,15 @@ const TABS = ["People", "Teams", "Departments"];
 export default function PeopleTeams() {
   const [tab, setTab] = useState("People");
 
-  const { data: members     = [], isLoading: membersLoading } = useMembers();
-  const { data: departments = [], isLoading: deptsLoading   } = useDepartments();
-  const { data: allCards    = [] }                             = useCards();
+  const {
+    data: members     = [],
+    isLoading: membersLoading,
+    isError:   membersError,
+    refetch:   membersRefetch,
+  } = useMembers();
+
+  const { data: departments = [], isLoading: deptsLoading } = useDepartments();
+  const { data: allCards    = [] } = useCards();
 
   const cardsByMember = useMemo(() =>
     allCards.reduce((acc, c) => {
@@ -1249,7 +1122,6 @@ export default function PeopleTeams() {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">People & Teams</h1>
@@ -1257,16 +1129,13 @@ export default function PeopleTeams() {
         </div>
       </div>
 
-      {/* Tab switcher */}
       <div className="flex gap-1 bg-white rounded-xl border border-gray-200 shadow-sm p-1 mb-6 w-fit">
         {TABS.map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
-              tab === t
-                ? "bg-green-500 text-white shadow-sm"
-                : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+              tab === t ? "bg-green-500 text-white shadow-sm" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
             }`}
           >
             {t}
@@ -1274,24 +1143,19 @@ export default function PeopleTeams() {
         ))}
       </div>
 
-      {/* Tab content */}
       {tab === "People" && (
         <PeopleTab
           members={members}
           departments={departments}
           cardsByMember={cardsByMember}
           isLoading={membersLoading}
+          isError={membersError}
+          refetch={membersRefetch}
         />
       )}
-      {tab === "Teams" && (
-        <TeamsTab members={members} />
-      )}
+      {tab === "Teams" && <TeamsTab members={members} />}
       {tab === "Departments" && (
-        <DepartmentsTab
-          departments={departments}
-          members={members}
-          isLoading={deptsLoading}
-        />
+        <DepartmentsTab departments={departments} members={members} isLoading={deptsLoading} />
       )}
     </div>
   );
