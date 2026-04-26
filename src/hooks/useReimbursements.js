@@ -25,7 +25,6 @@ export function useReimbursements(filters = {}) {
           )
         `)
         .eq("organization_id", orgId)
-        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (filters.status)  q = q.eq("status", filters.status);
@@ -171,7 +170,7 @@ export function useMarkReimbursementPaid() {
   });
 }
 
-/** Soft-delete a reimbursement request */
+/** Hard-delete a reimbursement request (table has no deleted_at column) */
 export function useDeleteReimbursement() {
   const { orgId } = useAuth();
   const qc = useQueryClient();
@@ -179,7 +178,7 @@ export function useDeleteReimbursement() {
     mutationFn: async ({ id }) => {
       const { error } = await supabase
         .from("reimbursement_requests")
-        .update({ deleted_at: new Date().toISOString() })
+        .delete()
         .eq("id", id)
         .eq("organization_id", orgId);
       if (error) throw error;
