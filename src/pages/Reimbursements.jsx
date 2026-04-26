@@ -2,13 +2,16 @@ import { useState, useRef, useEffect } from "react";
 import {
   Upload, FileText, X, Eye, CheckCircle, XCircle,
   CreditCard, Paperclip, AlertCircle, ExternalLink,
+  Pencil, Trash2,
 } from "lucide-react";
 import {
   useReimbursements,
   useCreateReimbursement,
+  useUpdateReimbursement,
   useApproveReimbursement,
   useDeclineReimbursement,
   useMarkReimbursementPaid,
+  useDeleteReimbursement,
   getReceiptUrl,
 } from "../hooks/useReimbursements";
 import { useTransactionCategories } from "../hooks/useTransactions";
@@ -529,6 +532,121 @@ function ViewModal({ request, onClose, currency }) {
   );
 }
 
+// ── Edit Reimbursement Modal ───────────────────────────────────────────────────
+function EditReimbursementModal({ request, onClose, currency }) {
+  const updateMut = useUpdateReimbursement();
+  const items     = request.reimbursement_items ?? [];
+  const firstItem = items[0];
+
+  const [form, setForm] = useState({
+    title:       request.title ?? "",
+    description: request.description ?? "",
+    amount:      firstItem ? String((firstItem.amount / 100).toFixed(2)) : "",
+    date:        firstItem?.expense_date ?? new Date().toISOString().slice(0, 10),
+  });
+  const [error, setError] = useState("");
+
+  async function handleSave() {
+    setError("");
+    if (!form.title.trim())                     { setError("Title is required.");          return; }
+    if (!form.amount || parseFloat(form.amount) <= 0) { setError("Enter a valid amount."); return; }
+
+    const amountMinor = Math.round(parseFloat(form.amount) * 100);
+    try {
+      await updateMut.mutateAsync({
+        id:           request.id,
+        title:        form.title.trim(),
+        description:  form.description.trim() || null,
+        total_amount: amountMinor,
+      });
+      onClose();
+    } catch (err) {
+      setError(err?.message ?? "Failed to update. Please try again.");
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-gray-900">Edit Request</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 mb-4 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md px-3 py-2">
+            <AlertCircle size={13} className="shrink-0" />{error}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Title / Description <span className="text-red-400">*</span>
+            </label>
+            <input
+              value={form.title}
+              onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="What was this expense for?"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Amount ({currency}) <span className="text-red-400">*</span>
+              </label>
+              <input
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 tabular-nums"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
+              <input
+                value={form.date}
+                onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))}
+                type="date"
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              rows={2}
+              placeholder="Any additional context…"
+              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-green-500 resize-none"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 text-gray-600 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={updateMut.isPending}
+            className="flex-1 bg-green-500 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-green-600 disabled:opacity-50"
+          >
+            {updateMut.isPending ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 const TABS = [
   { key: "all",       label: "All"            },
@@ -547,11 +665,31 @@ export default function Reimbursements() {
   const [viewRequest,   setViewRequest]   = useState(null);
   const [declineTarget, setDeclineTarget] = useState(null);
   const [payTarget,     setPayTarget]     = useState(null);
+  const [editTarget,    setEditTarget]    = useState(null);
+  const [toast,         setToast]         = useState(null);
 
   const filters = activeTab !== "all" ? { status: activeTab } : {};
   const { data: requests = [], isLoading } = useReimbursements(filters);
   const { data: allReqs  = [] }            = useReimbursements({});
   const approveMut = useApproveReimbursement();
+  const deleteMut  = useDeleteReimbursement();
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }
+
+  function handleDelete(req) {
+    const label = req.title ?? "request";
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    deleteMut.mutate(
+      { id: req.id },
+      {
+        onSuccess: () => showToast(`"${label}" deleted.`),
+        onError:   (err) => showToast(`Error: ${err.message}`),
+      },
+    );
+  }
 
   const submittedReqs = allReqs.filter(r => r.status === "submitted");
   const approvedReqs  = allReqs.filter(r => r.status === "approved" || r.status === "paid");
@@ -565,11 +703,20 @@ export default function Reimbursements() {
 
   return (
     <div className="min-h-screen bg-[#F7F7F8] p-6">
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-5 py-3 rounded-xl shadow-xl flex items-center gap-2.5">
+          <CheckCircle size={15} className="text-green-400 shrink-0" />
+          {toast}
+        </div>
+      )}
+
       {/* Modals */}
-      {showSubmit    && <SubmitModal   onClose={() => setShowSubmit(false)}   currency={currency} />}
-      {viewRequest   && <ViewModal     request={viewRequest}  onClose={() => setViewRequest(null)}   currency={currency} />}
+      {showSubmit    && <SubmitModal              onClose={() => setShowSubmit(false)}    currency={currency} />}
+      {viewRequest   && <ViewModal     request={viewRequest}   onClose={() => setViewRequest(null)}    currency={currency} />}
       {declineTarget && <DeclineModal  request={declineTarget} onClose={() => setDeclineTarget(null)} />}
-      {payTarget     && <MarkPaidModal request={payTarget}    onClose={() => setPayTarget(null)}     currency={currency} />}
+      {payTarget     && <MarkPaidModal request={payTarget}     onClose={() => setPayTarget(null)}      currency={currency} />}
+      {editTarget    && <EditReimbursementModal request={editTarget} onClose={() => setEditTarget(null)} currency={currency} />}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
@@ -721,7 +868,7 @@ export default function Reimbursements() {
 
                       {/* Actions */}
                       <td className="px-3 py-3.5">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           {status === "submitted" && (
                             <>
                               <button
@@ -763,6 +910,25 @@ export default function Reimbursements() {
                               <Eye size={11} /> View
                             </button>
                           )}
+                          {/* Edit — draft or submitted only */}
+                          {(status === "submitted" || status === "draft") && (
+                            <button
+                              onClick={() => setEditTarget(req)}
+                              title="Edit request"
+                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                          {/* Delete — always available */}
+                          <button
+                            onClick={() => handleDelete(req)}
+                            disabled={deleteMut.isPending}
+                            title="Delete request"
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-40"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </td>
                     </tr>

@@ -201,3 +201,20 @@ export function useMarkBillPaid() {
       }),
   });
 }
+
+/** Soft-delete a bill */
+export function useDeleteBill() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase
+        .from("bills")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("organization_id", orgId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["bills", orgId] }),
+  });
+}

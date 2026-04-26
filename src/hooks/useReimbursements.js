@@ -25,6 +25,7 @@ export function useReimbursements(filters = {}) {
           )
         `)
         .eq("organization_id", orgId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
 
       if (filters.status)  q = q.eq("status", filters.status);
@@ -167,5 +168,22 @@ export function useMarkReimbursementPaid() {
         payment_method:     paymentMethod ?? null,
         payment_reference:  paymentReference ?? null,
       }),
+  });
+}
+
+/** Soft-delete a reimbursement request */
+export function useDeleteReimbursement() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase
+        .from("reimbursement_requests")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("organization_id", orgId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["reimbursement_requests", orgId] }),
   });
 }

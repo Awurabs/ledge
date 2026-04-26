@@ -3,8 +3,11 @@ import {
   Search, Download, Plus, ChevronDown, ChevronUp,
   Receipt, AlertCircle, FileText, X, CheckCircle,
   Banknote, TrendingDown, Clock, BadgeCheck,
+  Pencil, Trash2, Copy, Check,
 } from "lucide-react";
-import { useExpenses, useCreateExpense, useUpdateExpense } from "../hooks/useExpenses";
+import {
+  useExpenses, useCreateExpense, useUpdateExpense, useDeleteExpense,
+} from "../hooks/useExpenses";
 import { useBills } from "../hooks/useBills";
 import { useReimbursements } from "../hooks/useReimbursements";
 import { useTransactionCategories } from "../hooks/useTransactions";
@@ -23,7 +26,7 @@ function SourceBadge({ source }) {
 }
 
 // ── Normalise all three sources ────────────────────────────────────────────────
-const BILL_STATUS = { paid:"reimbursed", void:"rejected", scheduled:"approved", pending:"submitted", inbox:"draft", draft:"draft", overdue:"submitted" };
+const BILL_STATUS  = { paid:"reimbursed", void:"rejected", scheduled:"approved", pending:"submitted", inbox:"draft", draft:"draft", overdue:"submitted" };
 const REIMB_STATUS = { paid:"reimbursed", approved:"approved", rejected:"rejected", submitted:"submitted" };
 
 function normalise(expenses, bills, reimbursements) {
@@ -41,7 +44,6 @@ function normalise(expenses, bills, reimbursements) {
     department: e.departments?.name ?? null,
     _raw: e,
   }));
-
   const fromBills = bills.map((b) => ({
     _id:      b.id,
     _source:  "bill",
@@ -56,7 +58,6 @@ function normalise(expenses, bills, reimbursements) {
     department: null,
     _raw: b,
   }));
-
   const fromReimbs = reimbursements.map((r) => ({
     _id:      r.id,
     _source:  "reimbursement",
@@ -71,7 +72,6 @@ function normalise(expenses, bills, reimbursements) {
     department: null,
     _raw: r,
   }));
-
   return [...fromExpenses, ...fromBills, ...fromReimbs]
     .sort((a, b) => new Date(b.date) - new Date(a.date));
 }
@@ -83,12 +83,12 @@ function Skeleton({ className = "" }) {
 
 // ── Status config ──────────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
-  approved:    { color: "bg-green-50 text-green-700",  label: "Approved"  },
-  submitted:   { color: "bg-amber-50 text-amber-700",  label: "Submitted" },
-  pending:     { color: "bg-gray-100 text-gray-600",   label: "Draft"     },
-  draft:       { color: "bg-gray-100 text-gray-600",   label: "Draft"     },
-  rejected:    { color: "bg-red-50 text-red-700",      label: "Rejected"  },
-  reimbursed:  { color: "bg-blue-50 text-blue-700",    label: "Reimbursed"},
+  approved:    { color: "bg-green-50 text-green-700",  label: "Approved"   },
+  submitted:   { color: "bg-amber-50 text-amber-700",  label: "Submitted"  },
+  pending:     { color: "bg-gray-100 text-gray-600",   label: "Draft"      },
+  draft:       { color: "bg-gray-100 text-gray-600",   label: "Draft"      },
+  rejected:    { color: "bg-red-50 text-red-700",      label: "Rejected"   },
+  reimbursed:  { color: "bg-blue-50 text-blue-700",    label: "Reimbursed" },
 };
 
 function getInitials(name) {
@@ -99,30 +99,31 @@ function getInitials(name) {
     : name.slice(0, 2).toUpperCase();
 }
 
-// ── New Expense Panel ──────────────────────────────────────────────────────────
-function NewExpensePanel({ categories, currency, onClose, onCreate }) {
-  const today = new Date().toISOString().slice(0, 10);
+// ── Expense Form Panel (create + edit) ─────────────────────────────────────────
+function ExpenseFormPanel({ categories, currency, onClose, onSave, initial }) {
+  const isEdit = !!initial;
+  const today  = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
-    merchant_name: "",
-    amount: "",
-    expense_date: today,
-    category_id: "",
-    description: "",
-    is_reimbursable: true,
+    merchant_name:   initial?._raw?.merchant_name  ?? "",
+    amount:          initial ? String((initial.amount / 100).toFixed(2)) : "",
+    expense_date:    initial?._raw?.expense_date    ?? today,
+    category_id:     initial?._raw?.category_id     ?? "",
+    description:     initial?.description            ?? "",
+    is_reimbursable: initial?._raw?.is_reimbursable  ?? true,
   });
   const [saving, setSaving] = useState(false);
-  const [error, setError]   = useState("");
+  const [error,  setError]  = useState("");
   const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const expenseCats = categories.filter((c) => c.type === "expense");
-  const amountMinor = Math.round((parseFloat(form.amount.replace(/,/g, "")) || 0) * 100);
-  const canSave     = form.merchant_name.trim() && form.amount.trim() && form.expense_date;
+  const expenseCats  = categories.filter((c) => c.type === "expense");
+  const amountMinor  = Math.round((parseFloat(form.amount.replace(/,/g, "")) || 0) * 100);
+  const canSave      = form.merchant_name.trim() && form.amount.trim() && form.expense_date;
 
   async function handleSubmit(submitForApproval) {
     if (!canSave) { setError("Please fill in merchant, amount and date."); return; }
     setError(""); setSaving(true);
     try {
-      await onCreate({
+      await onSave({
         merchant_name:   form.merchant_name.trim(),
         amount:          amountMinor,
         expense_date:    form.expense_date,
@@ -144,16 +145,13 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
     <div className="fixed inset-0 z-40 flex">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
       <div className="absolute right-0 top-0 h-full w-[420px] bg-white shadow-2xl flex flex-col z-50">
-
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">New Expense</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Fill in the details below</p>
+            <h2 className="text-lg font-bold text-gray-900">{isEdit ? "Edit Expense" : "New Expense"}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{isEdit ? "Update the expense details" : "Fill in the details below"}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded"><X size={18} /></button>
         </div>
 
         {/* Body */}
@@ -164,7 +162,6 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             </div>
           )}
 
-          {/* Merchant */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Merchant / Vendor <span className="text-red-400">*</span>
@@ -178,7 +175,6 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             />
           </div>
 
-          {/* Amount */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Amount ({currency === "GHS" ? "GH₵" : currency}) <span className="text-red-400">*</span>
@@ -196,7 +192,6 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             </div>
           </div>
 
-          {/* Date */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date <span className="text-red-400">*</span>
@@ -209,7 +204,6 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             />
           </div>
 
-          {/* Category */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
             <select
@@ -224,7 +218,6 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             </select>
           </div>
 
-          {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Description / Note</label>
             <textarea
@@ -236,17 +229,12 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             />
           </div>
 
-          {/* Reimbursable */}
           <label className="flex items-center gap-3 cursor-pointer select-none">
             <div
               onClick={() => upd("is_reimbursable", !form.is_reimbursable)}
-              className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
-                form.is_reimbursable ? "bg-green-500" : "bg-gray-300"
-              }`}
+              className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${form.is_reimbursable ? "bg-green-500" : "bg-gray-300"}`}
             >
-              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                form.is_reimbursable ? "translate-x-4" : "translate-x-0"
-              }`} />
+              <div className={`w-5 h-5 bg-white rounded-full shadow transition-transform ${form.is_reimbursable ? "translate-x-4" : "translate-x-0"}`} />
             </div>
             <div>
               <p className="text-sm font-medium text-gray-700">Reimbursable</p>
@@ -269,13 +257,178 @@ function NewExpensePanel({ categories, currency, onClose, onCreate }) {
             disabled={saving || !canSave}
             className="flex-1 bg-green-500 text-white rounded-md py-2.5 text-sm font-semibold hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
-            {saving ? (
-              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-            ) : <CheckCircle size={14} />}
+            {saving
+              ? <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></svg>
+              : <CheckCircle size={14} />}
             Submit
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Expense Detail Drawer ──────────────────────────────────────────────────────
+function ExpenseDetailDrawer({ item, currency, onClose, onEdit, onDelete }) {
+  const statusCfg  = STATUS_CONFIG[item.status] ?? { color: "bg-gray-100 text-gray-600", label: item.status ?? "—" };
+  const attachments = item._raw?.expense_attachments ?? [];
+  const canEdit    = item._source === "expense" && (item.status === "draft" || item.status === "submitted");
+
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]" onClick={onClose} />
+      <div className="absolute right-0 top-0 h-full w-[440px] bg-white shadow-2xl flex flex-col z-50">
+        {/* Header */}
+        <div className="flex items-start justify-between px-6 py-5 border-b border-gray-100">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <SourceBadge source={item._source} />
+              <span className={`rounded-full text-xs px-2.5 py-0.5 font-medium ${statusCfg.color}`}>
+                {statusCfg.label}
+              </span>
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 truncate">{item.merchant}</h2>
+            <p className="text-2xl font-bold text-gray-900 tabular-nums mt-1">{fmt(item.amount, currency)}</p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1 rounded ml-3 shrink-0"><X size={18} /></button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {/* Core details */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Details</p>
+            <div className="space-y-2.5">
+              <DetailRow label="Date"       value={fmtDate(item.date)} />
+              <DetailRow label="Source"     value={<SourceBadge source={item._source} />} />
+              {item.category && (
+                <DetailRow label="Category" value={`${item.category.emoji ?? ""} ${item.category.name}`} />
+              )}
+              {item.department && (
+                <DetailRow label="Department" value={item.department} />
+              )}
+              {item.submitter && (
+                <DetailRow label="Submitted by" value={item.submitter.full_name ?? "—"} />
+              )}
+              {item._raw?.is_reimbursable !== undefined && (
+                <DetailRow label="Reimbursable" value={item._raw.is_reimbursable ? "Yes" : "No"} />
+              )}
+              {item._raw?.submitted_at && (
+                <DetailRow label="Submitted at" value={fmtDate(item._raw.submitted_at)} />
+              )}
+            </div>
+          </div>
+
+          {/* Description */}
+          {item.description && (
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Notes</p>
+              <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2.5 leading-relaxed">
+                {item.description}
+              </p>
+            </div>
+          )}
+
+          {/* Attachments */}
+          <div>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Receipts & Attachments</p>
+            {attachments.length === 0 ? (
+              <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2.5">
+                <AlertCircle size={14} className="text-amber-500 shrink-0" />
+                <p className="text-sm text-amber-700">No receipt attached</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {attachments.map((att) => (
+                  <div key={att.id} className="flex items-center gap-2.5 bg-green-50 border border-green-100 rounded-lg px-3 py-2.5">
+                    <Receipt size={14} className="text-green-600 shrink-0" />
+                    <span className="text-sm text-green-700 truncate flex-1">{att.filename ?? att.storage_key}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer — actions */}
+        <div className="px-6 py-4 border-t border-gray-100 space-y-2">
+          {canEdit && (
+            <button
+              onClick={onEdit}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              <Pencil size={14} /> Edit Expense
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50"
+          >
+            <Trash2 size={14} /> Delete Expense
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="text-sm text-gray-500 shrink-0">{label}</span>
+      <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
+    </div>
+  );
+}
+
+// ── Request Receipt Modal ──────────────────────────────────────────────────────
+function RequestReceiptModal({ item, currency, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const name     = item.submitter?.full_name ?? "the employee";
+  const message  = `Hi ${name}, could you please attach your receipt for ${fmt(item.amount, currency)} at ${item.merchant} on ${fmtDate(item.date)}? It's needed to complete the expense record. Thank you!`;
+
+  function handleCopy() {
+    navigator.clipboard.writeText(message).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+              <Receipt size={15} className="text-amber-600" />
+            </div>
+            <h3 className="text-base font-semibold text-gray-900">Request Receipt</h3>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+
+        <p className="text-xs text-gray-500 mb-2">Copy this message and send to the employee:</p>
+        <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 text-sm text-gray-700 leading-relaxed mb-4">
+          {message}
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleCopy}
+            className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors ${
+              copied
+                ? "bg-green-50 border-green-200 text-green-700"
+                : "bg-white border-gray-300 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? "Copied!" : "Copy Message"}
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 bg-green-500 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-600"
+          >
+            Done
           </button>
         </div>
       </div>
@@ -292,27 +445,32 @@ export default function Expenses() {
   const [statusFilter,   setStatusFilter]   = useState("all");
   const [search,         setSearch]         = useState("");
   const [sourceFilter,   setSourceFilter]   = useState("all");
-  const [expandedRow,    setExpandedRow]     = useState(null);
+  const [expandedRow,    setExpandedRow]    = useState(null);
   const [showNewPanel,   setShowNewPanel]   = useState(false);
   const [toast,          setToast]          = useState(null);
 
-  // Fetch all three sources
-  const { data: expenseData  = [], isLoading: loadingExp   } = useExpenses({});
-  const { data: billData     = [], isLoading: loadingBills  } = useBills();
-  const { data: reimbData    = [], isLoading: loadingReimbs } = useReimbursements();
-  const { data: categories   = [] }                          = useTransactionCategories();
+  // Panels / modals
+  const [viewItem,          setViewItem]          = useState(null); // detail drawer
+  const [editItem,          setEditItem]          = useState(null); // edit panel
+  const [receiptReqItem,    setReceiptReqItem]    = useState(null); // request receipt modal
+
+  // Data
+  const { data: expenseData = [], isLoading: loadingExp   } = useExpenses({});
+  const { data: billData    = [], isLoading: loadingBills  } = useBills();
+  const { data: reimbData   = [], isLoading: loadingReimbs } = useReimbursements();
+  const { data: categories  = [] }                           = useTransactionCategories();
   const updateMut = useUpdateExpense();
   const createMut = useCreateExpense();
+  const deleteMut = useDeleteExpense();
 
   const isLoading = loadingExp || loadingBills || loadingReimbs;
 
-  // Normalise → then filter client-side
   const allItems = normalise(expenseData, billData, reimbData);
 
   const items = allItems.filter((item) => {
-    if (sourceFilter   !== "all" && item._source !== sourceFilter) return false;
-    if (statusFilter   !== "all" && item.status  !== statusFilter)  return false;
-    if (categoryFilter !== "all" && item.category?.id !== categoryFilter) return false;
+    if (sourceFilter   !== "all" && item._source !== sourceFilter)             return false;
+    if (statusFilter   !== "all" && item.status  !== statusFilter)             return false;
+    if (categoryFilter !== "all" && item.category?.id !== categoryFilter)      return false;
     if (search.trim() && !item.merchant.toLowerCase().includes(search.toLowerCase()) &&
         !(item.description ?? "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -320,10 +478,36 @@ export default function Expenses() {
 
   const expenseCats = categories.filter((c) => c.type === "expense");
 
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }
+
   async function handleCreate(values) {
     await createMut.mutateAsync(values);
-    setToast(`Expense "${values.merchant_name}" ${values.status === "submitted" ? "submitted for approval" : "saved as draft"}.`);
-    setTimeout(() => setToast(null), 4000);
+    showToast(`Expense "${values.merchant_name}" ${values.status === "submitted" ? "submitted for approval" : "saved as draft"}.`);
+  }
+
+  async function handleUpdate(values) {
+    await updateMut.mutateAsync({ id: editItem._id, ...values });
+    showToast("Expense updated successfully.");
+    setEditItem(null);
+    setViewItem(null);
+  }
+
+  function handleDelete(item) {
+    if (!window.confirm(`Delete expense "${item.merchant}"? This cannot be undone.`)) return;
+    deleteMut.mutate(
+      { id: item._id },
+      {
+        onSuccess: () => {
+          showToast(`Expense "${item.merchant}" deleted.`);
+          setViewItem(null);
+          setExpandedRow(null);
+        },
+        onError: (err) => showToast(`Error: ${err.message}`),
+      },
+    );
   }
 
   const clearFilters = () => {
@@ -357,15 +541,13 @@ export default function Expenses() {
         </div>
         <div className="flex items-center gap-3">
           <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50">
-            <Download size={15} />
-            Export CSV
+            <Download size={15} /> Export CSV
           </button>
           <button
             onClick={() => setShowNewPanel(true)}
             className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-500 rounded-lg shadow-sm hover:bg-green-600"
           >
-            <Plus size={15} />
-            New Expense
+            <Plus size={15} /> New Expense
           </button>
         </div>
       </div>
@@ -377,10 +559,10 @@ export default function Expenses() {
         const totalPending  = allItems.filter((e) => e.status === "submitted").reduce((s, e) => s + (e.amount ?? 0), 0);
         const totalDraft    = allItems.filter((e) => e.status === "draft" || e.status === "pending").reduce((s, e) => s + (e.amount ?? 0), 0);
         const cards = [
-          { label: "Total Expenses",  value: totalAll,      icon: TrendingDown, color: "text-red-600",    bg: "bg-red-50",    badge: `${allItems.length} entries`                                                              },
-          { label: "Approved",        value: totalApproved, icon: BadgeCheck,   color: "text-green-600",  bg: "bg-green-50",  badge: `${allItems.filter((e) => e.status === "approved" || e.status === "reimbursed").length} items` },
-          { label: "Pending Approval",value: totalPending,  icon: Clock,        color: "text-amber-600",  bg: "bg-amber-50",  badge: `${allItems.filter((e) => e.status === "submitted").length} submitted`                    },
-          { label: "Drafts",          value: totalDraft,    icon: FileText,     color: "text-gray-500",   bg: "bg-gray-100",  badge: `${allItems.filter((e) => e.status === "draft" || e.status === "pending").length} drafts`  },
+          { label: "Total Expenses",   value: totalAll,      icon: TrendingDown, color: "text-red-600",   bg: "bg-red-50",   badge: `${allItems.length} entries`                                                                      },
+          { label: "Approved",         value: totalApproved, icon: BadgeCheck,   color: "text-green-600", bg: "bg-green-50", badge: `${allItems.filter((e) => e.status === "approved" || e.status === "reimbursed").length} items`       },
+          { label: "Pending Approval", value: totalPending,  icon: Clock,        color: "text-amber-600", bg: "bg-amber-50", badge: `${allItems.filter((e) => e.status === "submitted").length} submitted`                              },
+          { label: "Drafts",           value: totalDraft,    icon: FileText,     color: "text-gray-500",  bg: "bg-gray-100", badge: `${allItems.filter((e) => e.status === "draft" || e.status === "pending").length} drafts`           },
         ];
         return (
           <div className="grid grid-cols-4 gap-4 mb-5">
@@ -388,13 +570,9 @@ export default function Expenses() {
               <div key={c.label} className="bg-white rounded-lg border border-gray-200 shadow-sm p-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-sm text-gray-500">{c.label}</p>
-                  <div className={`${c.bg} p-2 rounded-lg`}>
-                    <c.icon size={16} className={c.color} />
-                  </div>
+                  <div className={`${c.bg} p-2 rounded-lg`}><c.icon size={16} className={c.color} /></div>
                 </div>
-                {isLoading ? (
-                  <Skeleton className="h-7 w-28 mb-1" />
-                ) : (
+                {isLoading ? <Skeleton className="h-7 w-28 mb-1" /> : (
                   <p className="text-xl font-bold text-gray-900 mb-1">{fmt(c.value, currency)}</p>
                 )}
                 <p className="text-xs text-gray-400">{c.badge}</p>
@@ -407,7 +585,6 @@ export default function Expenses() {
       {/* Filter Bar */}
       <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 mb-5">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Category filter */}
           <div className="relative">
             <select
               value={categoryFilter}
@@ -415,16 +592,11 @@ export default function Expenses() {
               className="appearance-none pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-300 cursor-pointer"
             >
               <option value="all">All Categories</option>
-              {expenseCats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.emoji} {c.name}
-                </option>
-              ))}
+              {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.name}</option>)}
             </select>
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
 
-          {/* Status filter */}
           <div className="relative">
             <select
               value={statusFilter}
@@ -441,7 +613,6 @@ export default function Expenses() {
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
 
-          {/* Source filter */}
           <div className="relative">
             <select
               value={sourceFilter}
@@ -456,7 +627,6 @@ export default function Expenses() {
             <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           </div>
 
-          {/* Search */}
           <div className="relative flex-1 min-w-[180px]">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
             <input
@@ -468,10 +638,8 @@ export default function Expenses() {
             />
           </div>
 
-          {/* Clear */}
           <button onClick={clearFilters} className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800">
-            <X size={13} />
-            Clear
+            <X size={13} /> Clear
           </button>
         </div>
       </div>
@@ -487,7 +655,6 @@ export default function Expenses() {
           </span>
         </div>
 
-        {/* Loading */}
         {isLoading ? (
           <div className="p-6 space-y-3">
             {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
@@ -496,9 +663,7 @@ export default function Expenses() {
           <div className="py-16 text-center text-gray-400">
             <Search size={32} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No expenses found</p>
-            <button onClick={clearFilters} className="text-sm text-green-600 mt-1 hover:underline">
-              Clear filters
-            </button>
+            <button onClick={clearFilters} className="text-sm text-green-600 mt-1 hover:underline">Clear filters</button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -506,9 +671,7 @@ export default function Expenses() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50">
                   {["Date", "Merchant", "Submitted By", "Category", "Source", "Amount", "Receipt", "Status", ""].map((h) => (
-                    <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">
-                      {h}
-                    </th>
+                    <th key={h} className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -524,12 +687,8 @@ export default function Expenses() {
                         onClick={() => toggleRow(item._id)}
                         className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${!item.hasReceipt ? "border-l-4 border-l-amber-400" : "border-l-4 border-l-transparent"}`}
                       >
-                        <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">
-                          {fmtDate(item.date)}
-                        </td>
-                        <td className="px-5 py-3.5 font-medium text-gray-900 whitespace-nowrap">
-                          {item.merchant}
-                        </td>
+                        <td className="px-5 py-3.5 text-gray-500 whitespace-nowrap">{fmtDate(item.date)}</td>
+                        <td className="px-5 py-3.5 font-medium text-gray-900 whitespace-nowrap">{item.merchant}</td>
                         <td className="px-5 py-3.5 text-gray-600 whitespace-nowrap">
                           <div className="flex items-center gap-2">
                             <div className="w-6 h-6 bg-green-100 rounded-full flex items-center justify-center text-xs font-semibold text-green-700 shrink-0">
@@ -543,35 +702,22 @@ export default function Expenses() {
                             {item.category?.emoji} {item.category?.name ?? "—"}
                           </span>
                         </td>
-                        <td className="px-5 py-3.5">
-                          <SourceBadge source={item._source} />
-                        </td>
-                        <td className="px-5 py-3.5 font-semibold text-gray-900 tabular-nums whitespace-nowrap">
-                          {fmt(item.amount, currency)}
-                        </td>
+                        <td className="px-5 py-3.5"><SourceBadge source={item._source} /></td>
+                        <td className="px-5 py-3.5 font-semibold text-gray-900 tabular-nums whitespace-nowrap">{fmt(item.amount, currency)}</td>
                         <td className="px-5 py-3.5">
                           {item.hasReceipt ? (
-                            <span className="flex items-center gap-1.5 text-green-600 text-xs font-medium">
-                              <Receipt size={13} /> Receipt
-                            </span>
+                            <span className="flex items-center gap-1.5 text-green-600 text-xs font-medium"><Receipt size={13} /> Receipt</span>
                           ) : (
-                            <span className="flex items-center gap-1.5 text-amber-600 text-xs font-medium">
-                              <AlertCircle size={13} /> Missing
-                            </span>
+                            <span className="flex items-center gap-1.5 text-amber-600 text-xs font-medium"><AlertCircle size={13} /> Missing</span>
                           )}
                         </td>
                         <td className="px-5 py-3.5">
-                          <span className={`rounded-full text-xs px-2.5 py-0.5 font-medium ${statusCfg.color}`}>
-                            {statusCfg.label}
-                          </span>
+                          <span className={`rounded-full text-xs px-2.5 py-0.5 font-medium ${statusCfg.color}`}>{statusCfg.label}</span>
                         </td>
                         <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2">
-                            {expandedRow === item._id
-                              ? <ChevronUp size={14} className="text-gray-500" />
-                              : <ChevronDown size={14} className="text-gray-500" />
-                            }
-                          </div>
+                          {expandedRow === item._id
+                            ? <ChevronUp size={14} className="text-gray-500" />
+                            : <ChevronDown size={14} className="text-gray-500" />}
                         </td>
                       </tr>
 
@@ -642,21 +788,22 @@ export default function Expenses() {
                               <div>
                                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Actions</h4>
                                 <div className="space-y-2">
+                                  {/* View Details */}
                                   <button
-                                    onClick={(e) => e.stopPropagation()}
+                                    onClick={(e) => { e.stopPropagation(); setViewItem(item); }}
                                     className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
                                   >
-                                    <FileText size={14} />
-                                    View Details
+                                    <FileText size={14} /> View Details
                                   </button>
+
+                                  {/* Approve / Reject — expense only, submitted */}
                                   {item._source === "expense" && item.status === "submitted" && (
                                     <>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: item._id, status: "approved" }); }}
                                         className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-semibold text-white bg-green-500 rounded-lg hover:bg-green-600"
                                       >
-                                        <CheckCircle size={14} />
-                                        Approve
+                                        <CheckCircle size={14} /> Approve
                                       </button>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); updateMut.mutate({ id: item._id, status: "rejected" }); }}
@@ -666,15 +813,35 @@ export default function Expenses() {
                                       </button>
                                     </>
                                   )}
+
+                                  {/* Request Receipt */}
                                   {item._source === "expense" && !item.hasReceipt && (
                                     <button
-                                      onClick={(e) => e.stopPropagation()}
+                                      onClick={(e) => { e.stopPropagation(); setReceiptReqItem(item); }}
                                       className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100"
                                     >
-                                      <AlertCircle size={14} />
-                                      Request Receipt
+                                      <AlertCircle size={14} /> Request Receipt
                                     </button>
                                   )}
+
+                                  {/* Edit — expense only, draft/submitted */}
+                                  {item._source === "expense" && (item.status === "draft" || item.status === "submitted") && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setEditItem(item); }}
+                                      className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100"
+                                    >
+                                      <Pencil size={14} /> Edit
+                                    </button>
+                                  )}
+
+                                  {/* Delete */}
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDelete(item); }}
+                                    disabled={deleteMut.isPending}
+                                    className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                                  >
+                                    <Trash2 size={14} /> Delete
+                                  </button>
                                 </div>
                               </div>
                             </div>
@@ -701,12 +868,44 @@ export default function Expenses() {
         )}
       </div>
 
+      {/* Panels / Modals */}
       {showNewPanel && (
-        <NewExpensePanel
+        <ExpenseFormPanel
           categories={categories}
           currency={currency}
           onClose={() => setShowNewPanel(false)}
-          onCreate={handleCreate}
+          onSave={async (values) => {
+            await createMut.mutateAsync(values);
+            showToast(`Expense "${values.merchant_name}" ${values.status === "submitted" ? "submitted for approval" : "saved as draft"}.`);
+          }}
+        />
+      )}
+
+      {editItem && (
+        <ExpenseFormPanel
+          categories={categories}
+          currency={currency}
+          initial={editItem}
+          onClose={() => setEditItem(null)}
+          onSave={handleUpdate}
+        />
+      )}
+
+      {viewItem && (
+        <ExpenseDetailDrawer
+          item={viewItem}
+          currency={currency}
+          onClose={() => setViewItem(null)}
+          onEdit={() => { setViewItem(null); setEditItem(viewItem); }}
+          onDelete={() => handleDelete(viewItem)}
+        />
+      )}
+
+      {receiptReqItem && (
+        <RequestReceiptModal
+          item={receiptReqItem}
+          currency={currency}
+          onClose={() => setReceiptReqItem(null)}
         />
       )}
     </div>

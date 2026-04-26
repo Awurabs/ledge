@@ -88,3 +88,20 @@ export function useSubmitExpense() {
       }),
   });
 }
+
+/** Soft-delete an expense */
+export function useDeleteExpense() {
+  const { orgId } = useAuth();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }) => {
+      const { error } = await supabase
+        .from("expenses")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("organization_id", orgId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["expenses", orgId] }),
+  });
+}
