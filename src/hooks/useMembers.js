@@ -38,7 +38,7 @@ export function useMembers(filters = {}) {
         .select(`
           id, role, department_id, invited_by, accepted_at, deactivated_at,
           created_at, updated_at, organization_id, user_id,
-          profiles ( id, full_name, avatar_url, phone, job_title, last_seen_at ),
+          profiles:profiles!user_id ( id, full_name, avatar_url, phone, job_title, last_seen_at ),
           departments ( id, name, code )
         `)
         .eq("organization_id", orgId)
